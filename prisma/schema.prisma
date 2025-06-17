@@ -1,0 +1,130 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
+// enough when changing adapters.
+// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+datasource db {
+  provider = "sqlite"
+  url      = "file:dev.sqlite"
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+}
+
+model ZRExpressCredential {
+  id        String   @id @default(cuid())
+  shop      String   @unique
+  token     String
+  key       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Shipment {
+  id           String   @id @default(cuid())
+  shop         String
+  tracking     String   @unique
+  client       String
+  mobileA      String
+  mobileB      String?
+  address      String
+  wilayaId     Int
+  wilaya       String
+  commune      String
+  total        Float
+  note         String?
+  productType  String
+  deliveryType Int
+  packageType  Int
+  status       String
+  statusId     Int
+  externalId   String
+  deliveryFee  Float   @default(0)
+  cancelFee    Float   @default(0)
+  orderId      String?  // Add orderId to link to Shopify order
+  totalCost    Float?   // Add COGS information
+  totalRevenue Float?
+  profit       Float?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
+
+  @@index([tracking])
+  @@index([createdAt])
+  @@index([shop])
+  @@index([orderId])
+}
+
+model FacebookCredential {
+  id          String   @id @default(cuid())
+  shop        String   @unique
+  accessToken String   @map("access_token")
+  expiresAt   DateTime @map("expires_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("facebook_credentials")
+}
+
+model OrderCOGS {
+  id           String      @id @default(cuid())
+  shop         String
+  orderId      String
+  orderName    String
+  totalCost    Float
+  totalRevenue Float
+  profit       Float
+  confirmedAt  DateTime    @default(now())
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  items        OrderItem[]
+
+  @@unique([shop, orderId])
+  @@index([shop])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id           String    @id @default(cuid())
+  productId    String
+  variantId    String
+  title        String
+  quantity     Int
+  unitCost     Float
+  price        Float
+  totalCost    Float
+  totalRevenue Float
+  profit       Float
+  orderCOGS    OrderCOGS  @relation(fields: [orderCOGSId], references: [id], onDelete: Cascade)
+  orderCOGSId  String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model AppCache {
+  key       String   @id
+  value     String   @default("") // Stores JSON as string
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([updatedAt])
+}

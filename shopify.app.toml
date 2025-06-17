@@ -1,0 +1,42 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "3a65881bc790e487ba268c7478b6b903"
+name = "trackprofit"
+handle = "trackprofit-1"
+application_url = "https://localhost:3458"
+embedded = true
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2025-04"
+
+  [[webhooks.subscriptions]]
+  topics = [
+  "app/uninstalled",
+  "products/create",
+  "products/update",
+  "products/delete",
+  "orders/create",
+  "orders/updated",
+  "orders/cancelled",
+  "inventory_items/update",
+  "inventory_levels/update"
+]
+  uri = "/webhooks"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_products,read_products,read_orders,read_customers,read_draft_orders,read_inventory,write_inventory"
+
+[auth]
+redirect_urls = [
+  "https://localhost:3458/auth/callback",
+  "https://localhost:3458/auth/shopify/callback",
+  "https://localhost:3458/api/auth/callback"
+]
+
+[pos]
+embedded = false

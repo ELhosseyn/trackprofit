@@ -1,0 +1,11 @@
+// This file extends the schema.prisma by adding the AppCache model
+// Will be applied during the next migration
+
+model AppCache {
+  key       String   @id
+  value     String   @default("") // Stores JSON as string
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([updatedAt])
+}

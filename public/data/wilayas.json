@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "wilaya_code": "01",
+    "wilaya_name_ascii": "Adrar",
+    "wilaya_name": "أدرار"
+  },
+  {
+    "id": 2,
+    "wilaya_code": "02",
+    "wilaya_name_ascii": "Chlef",
+    "wilaya_name": "الشلف"
+  },
+  {
+    "id": 3,
+    "wilaya_code": "03",
+    "wilaya_name_ascii": "Laghouat",
+    "wilaya_name": "الأغواط"
+  },
+  {
+    "id": 4,
+    "wilaya_code": "04",
+    "wilaya_name_ascii": "Oum El Bouaghi",
+    "wilaya_name": "أم البواقي"
+  },
+  {
+    "id": 5,
+    "wilaya_code": "05",
+    "wilaya_name_ascii": "Batna",
+    "wilaya_name": "باتنة"
+  }
+]
