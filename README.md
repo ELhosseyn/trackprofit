@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Shopify App Template - Remix
 
 This is a template for building a [Shopify app](https://shopify.dev/docs/apps/getting-started) using the [Remix](https://remix.run) framework.
@@ -430,3 +431,6 @@ For production builds, a performance monitoring script is automatically injected
 Performance logs can be viewed in the browser console when running in production mode.
 
 ## Resources
+=======
+# trackprofit
+>>>>>>> c13081c4ae7fce56110d77e4010b4902e5805711
