@@ -1,5 +1,6 @@
 import { redirect } from "@remix-run/node";
-import prisma from "../db.server";
+import { prisma } from "../db.server";
+import { facebook } from "../services/facebook.server.js";
 
 export async function loader({ request }) {
   const url = new URL(request.url);
@@ -38,18 +39,37 @@ export async function loader({ request }) {
     const longLivedTokenData = await longLivedTokenResponse.json();
 
     // Store the credentials
-    await prisma.facebookCredential.upsert({
+    await prisma.FacebookCredential.upsert({
       where: { shop: state },
       update: {
         accessToken: longLivedTokenData.access_token,
-        expiresAt: new Date(Date.now() + longLivedTokenData.expires_in * 1000)
+        expiresAt: new Date(Date.now() + longLivedTokenData.expires_in * 1000),
+        lastUpdated: new Date()
       },
       create: {
         shop: state,
         accessToken: longLivedTokenData.access_token,
-        expiresAt: new Date(Date.now() + longLivedTokenData.expires_in * 1000)
+        expiresAt: new Date(Date.now() + longLivedTokenData.expires_in * 1000),
+        lastUpdated: new Date()
       }
     });
+
+    // Try to fetch ad accounts immediately for better user experience
+    try {
+      const adAccounts = await facebook.getAdAccounts(longLivedTokenData.access_token);
+      if (adAccounts && adAccounts.length > 0) {
+        await prisma.FacebookCredential.update({
+          where: { shop: state },
+          data: { 
+            adAccounts: JSON.stringify(adAccounts),
+            lastUpdated: new Date()
+          }
+        });
+      }
+    } catch (error) {
+      console.error("Failed to fetch ad accounts during OAuth callback:", error);
+      // We'll continue even if this fails, as the user can refresh accounts later
+    }
 
     return redirect("/app/facebook?success=true");
   } catch (error) {

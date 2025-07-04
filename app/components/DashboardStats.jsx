@@ -9,6 +9,9 @@ export default function DashboardStats({ stats, formatCurrency, formatNumber, fa
           title="صافي الربح" 
           value={formatCurrency(stats?.totalProfit)}
           tone={stats?.totalProfit > 0 ? "success" : "critical"}
+          subtitle={facebook?.selectedAccount && facebook.currency !== 'DZD' ? 
+            `${formatCurrency(stats.totalProfit / parseFloat(exchangeRate), stats.totalProfit < 0, facebook.currency)} ${facebook.currency}` : 
+            undefined}
         />
       </Grid.Cell>
       <Grid.Cell>

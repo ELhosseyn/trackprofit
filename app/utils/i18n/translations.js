@@ -417,6 +417,8 @@ export const ar = {
     phone: 'الهاتف',
     secondaryPhone: 'هاتف ثانوي',
     address: 'العنوان',
+    wilaya: 'الولاية',
+    commune: 'البلدية',
     state: 'الولاية',
     city: 'المدينة',
     
@@ -447,28 +449,48 @@ export const ar = {
       next: 'التالي',
       of: 'من',
       page: 'صفحة',
+      totalOrders: 'إجمالي الطلبات'
     },
     deliveryTypes: {
       home: 'توصيل منزلي',
-      office: 'مكتب توصيل'
+      office: 'مكتب التوصيل'
     },
     packageTypes: {
       regular: 'طرد عادي',
       exchange: 'طرد تبديل'
     },
     confirmationStatus: {
+      label: 'حالة التأكيد',
       confirmed: 'مؤكد',
       notConfirmed: 'غير مؤكد'
     },
     loadingOrders: 'جاري تحميل الطلبات...',
-    noOrdersInRange: 'لا توجد طلبات في هذه الفترة الزمنية',
-    dashboardTitle: 'لوحة معلومات الطلبات',
+    noOrdersInRange: 'لا توجد طلبات في هذا النطاق الزمني',
+    dashboardTitle: 'لوحة تحكم الطلبات',
+    
+    // Add missing Arabic translations for all order-related terms
+    orderNumber: 'رقم الطلب',
+    fulfillment: 'تجهيز الطلب',
+    payment: 'الدفع',
+    delivery: 'التوصيل',
+    view: 'عرض',
+    unknown: 'غير معروف',
+    unfulfilled: 'غير مجهز',
+    anonymous: 'مجهول',
+    noAddress: 'لا يوجد عنوان',
+    profit: 'الربح',
+    actions: 'الإجراءات',
+    showing: 'عرض',
+    of: 'من',
+    orders: 'طلبات',
+    cachedData: 'بيانات مخزنة',
+    
     productDescription: 'وصف المنتج',
     notes: 'ملاحظات',
-    totalSummary: 'الإجمالي',
+    totalSummary: 'المجموع',
     cost: 'التكلفة:',
     profit: 'الربح:',
-    updating: 'جاري التحديث'
+    updating: 'جاري التحديث',
   },
   zrExpress: {
     title: 'ZR Express - إدارة الشحن',
@@ -514,8 +536,8 @@ export const ar = {
     commune: '🏙️ البلدية',
     status: '📊 الحالة',
     amount: '💰 المبلغ',
-    totalShipments: '📊 إجمالي الشحنات: {{count}} | الصفحة {{currentPage}} من {{totalPages}}',
-    page: 'الصفحة {{currentPage}} من {{totalPages}}',
+    totalShipments: '📊 إجمالي الشحنات: {{count}}',
+    page: '| الصفحة {{currentPage}} من {{totalPages}}',
     
     // Modals
     connectionSettingsTitle: 'إعدادات الاتصال',
@@ -540,6 +562,8 @@ export const ar = {
     exchange: 'تبديل',
     productType: 'نوع المنتج',
     notes: 'ملاحظات (اختياري)',
+    selectWilayaFirst: 'اختر الولاية أولاً',
+    selectCommune: 'اختر البلدية',
     
     // Messages
     invalidCredentials: 'بيانات الاعتماد غير صالحة. يرجى التحقق من الرمز والمفتاح.',
@@ -978,6 +1002,25 @@ export const en = {
     address: 'Address',
     state: 'State',
     city: 'City',
+    wilaya: 'wilaya',
+    commune: 'commune',
+    
+    // Add missing translations to handle all order-related terms
+    orderNumber: 'Order Number',
+    fulfillment: 'Fulfillment',
+    payment: 'Payment',
+    delivery: 'Delivery',
+    view: 'View',
+    unknown: 'Unknown',
+    unfulfilled: 'Unfulfilled',
+    anonymous: 'Anonymous',
+    noAddress: 'No Address',
+    profit: 'Profit',
+    actions: 'Actions',
+    showing: 'Showing',
+    of: 'of',
+    orders: 'orders',
+    cachedData: 'Cached Data',
     
     // Form placeholders
     selectWilayaFirst: 'Select wilaya first',
@@ -987,7 +1030,11 @@ export const en = {
     productName: 'Product Name',
     deliveryType: 'Delivery Type',
     packageType: 'Package Type',
-    confirmationStatus: 'Confirmation Status',
+    confirmationStatus: {
+      label: 'Confirmation Status',
+      confirmed: 'Confirmed',
+      notConfirmed: 'Not Confirmed'
+    },
     note: 'Note',
     createShipmentButton: 'Create Shipment',
     table: {
@@ -1006,6 +1053,7 @@ export const en = {
       next: 'Next',
       of: 'of',
       page: 'Page',
+      totalOrders: 'Total Orders'
     },
     deliveryTypes: {
       home: 'Home Delivery',
@@ -1016,6 +1064,7 @@ export const en = {
       exchange: 'Exchange Package'
     },
     confirmationStatus: {
+      label: 'Confirmation Status',
       confirmed: 'Confirmed',
       notConfirmed: 'Not Confirmed'
     },
@@ -1027,7 +1076,7 @@ export const en = {
     totalSummary: 'Total',
     cost: 'Cost:',
     profit: 'Profit:',
-    updating: 'Updating'
+    updating: 'Updating',
   },
   zrExpress: {
     title: 'ZR Express - Shipping Management',

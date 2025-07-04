@@ -35,6 +35,10 @@ export const LazyDashboardStats = lazy(() =>
   }))
 );
 
+// Import SimpleDataTable directly instead of lazy loading to fix hydration issues
+import SimpleDataTable from './SimpleDataTable';
+export const LazySimpleDataTable = SimpleDataTable;
+
 // Loading fallback component
 export const LoadingFallback = () => (
   <div style={{ 

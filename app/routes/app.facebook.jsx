@@ -128,7 +128,17 @@ export const loader = async ({ request }) => {
       });
     }
 
-    let adAccounts = Array.isArray(fbCredentials.adAccounts) ? fbCredentials.adAccounts : [];
+    let adAccounts = [];
+    
+    if (fbCredentials.adAccounts) {
+      try {
+        adAccounts = typeof fbCredentials.adAccounts === 'string' 
+          ? JSON.parse(fbCredentials.adAccounts) 
+          : (Array.isArray(fbCredentials.adAccounts) ? fbCredentials.adAccounts : []);
+      } catch (e) {
+        console.error('Error parsing adAccounts:', e);
+      }
+    }
     
     const shouldRefreshCache = !adAccounts.length || 
       !fbCredentials.lastUpdated || 
@@ -142,7 +152,7 @@ export const loader = async ({ request }) => {
           await prisma.FacebookCredential.update({
             where: { shop: session.shop },
             data: { 
-              adAccounts: freshAccounts,
+              adAccounts: JSON.stringify(freshAccounts),
               lastUpdated: new Date()
             }
           });
@@ -312,14 +322,14 @@ export const action = async ({ request }) => {
           update: { 
             accessToken, 
             expiresAt, 
-            adAccounts,
+            adAccounts: JSON.stringify(adAccounts),
             lastUpdated: new Date()
           },
           create: { 
             shop: session.shop, 
             accessToken, 
             expiresAt, 
-            adAccounts,
+            adAccounts: JSON.stringify(adAccounts),
             lastUpdated: new Date()
           },
         });

@@ -27,9 +27,10 @@ import {
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../db.server";
+import { zrexpress } from "../services/zrexpress.server.js";
+import { formatCurrency, formatNumber } from "../utils/formatters";
 
-// Lazy load heavy dependencies
-const zrexpress = lazy(() => import("../services/zrexpress.server").then(module => module.zrexpress));
+// Lazy load heavy dependencies for client-side only
 const XLSX = lazy(() => import('xlsx'));
 import { useLanguage } from "../utils/i18n/LanguageContext.jsx";
 
@@ -148,9 +149,6 @@ export const loader = async ({ request }) => {
 
     // Update response with credentials status
     initialResponse.hasCredentials = true;
-
-    // Import services just when needed
-    const { zrexpress } = await import("../services/zrexpress.server.js");
 
     try {
       // Validate credentials and fetch initial data in parallel
@@ -321,32 +319,43 @@ export const action = async ({ request }) => {
 
       try {
         const validationResult = await zrexpress.validateCredentials(token, key);
+        
         if (!validationResult.success) {
-          return json({ success: false, error: 'بيانات الاعتماد غير صالحة - يرجى التحقق من الرمز والمفتاح' }, {
-    headers: {
-      "Cache-Control": "private, max-age=30"
-    }
-  });
+          console.error('Validation failed:', validationResult.error);
+          return json({ 
+            success: false, 
+            error: validationResult.error || 'بيانات الاعتماد غير صالحة - يرجى التحقق من الرمز والمفتاح' 
+          });
         }
 
-        await prisma.ZRExpressCredential.upsert({
-          where: { shop: session.shop },
-          update: { token, key },
-          create: { shop: session.shop, token, key },
-        });
+        try {
+          await prisma.ZRExpressCredential.upsert({
+            where: { shop: session.shop },
+            update: { 
+              token, 
+              key, 
+              updatedAt: new Date() 
+            },
+            create: { 
+              shop: session.shop, 
+              token, 
+              key, 
+              createdAt: new Date(),
+              updatedAt: new Date() 
+            },
+          });
 
-        return json({ success: true }, { headers: { "Set-Cookie": await admin.session.commit() } }, {
-    headers: {
-      "Cache-Control": "private, max-age=30"
-    }
-  });
+          return json({ success: true }, { headers: { "Set-Cookie": await admin.session.commit() } });
+        } catch (dbError) {
+          console.error('Database error:', dbError);
+          return json({ success: false, error: 'حدث خطأ أثناء حفظ بيانات الاعتماد في قاعدة البيانات' });
+        }
       } catch (error) {
         console.error('Operation error:', error);
-        return json({ success: false, error: 'حدث خطأ أثناء التحقق أو حفظ بيانات الاعتماد' }, {
-    headers: {
-      "Cache-Control": "private, max-age=30"
-    }
-  });
+        return json({ 
+          success: false, 
+          error: 'حدث خطأ أثناء التحقق أو حفظ بيانات الاعتماد: ' + (error.message || 'خطأ غير معروف')
+        });
       }
     }
 
@@ -563,6 +572,9 @@ export default function ZRExpressManagement() {
   const [isUploading, setIsUploading] = useState(false);
   const [file, setFile] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
+  const [showToast, setShowToast] = useState(false);
+  const [exportData, setExportData] = useState([]);
+  const [dataIsReady, setDataIsReady] = useState(false);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
   const [communesData, setCommunesData] = useState([]);
@@ -715,7 +727,6 @@ export default function ZRExpressManagement() {
     content: t('zrExpress.dataUpdatedSuccess'),
     error: false
   });
-        setToastError(false);
         if (actionData.exportData) {
           setExportData(actionData.exportData);
         }
@@ -726,12 +737,11 @@ export default function ZRExpressManagement() {
     content: actionData.error,
     error: true
   });
-        setToastError(true);
         setIsUploading(false);
       }
       setShowToast(true);
     }
-  }, [actionData, navigate, t]);
+  }, [actionData, navigate, t, setExportData, setIsUploading]);
 
   useEffect(() => {
     // Set data ready after a small delay to allow UI to render first
@@ -755,8 +765,8 @@ export default function ZRExpressManagement() {
     setIsLoading(true);
     const formData = new FormData();
     formData.append("action", "saveCredentials");
-    formData.append("token", credentials.token);
-    formData.append("key", credentials.key);
+    formData.append("token", token);
+    formData.append("key", key);
     submit(formData, { method: "post" });
   };
 
@@ -1050,19 +1060,19 @@ export default function ZRExpressManagement() {
         }}>
           <StatCard 
             title={t('zrExpress.totalSales')} 
-            value={`${stats.grossAmount.toLocaleString()} ${t('general.currency')}`} 
+            value={formatCurrency(stats.grossAmount)} 
             icon="💰" 
             color="success" 
           />
           <StatCard 
             title={t('zrExpress.shippingCancelFees')} 
-            value={`${stats.totalShippingAndCancel.toLocaleString()} ${t('general.currency')}`} 
+            value={formatCurrency(stats.totalShippingAndCancel)} 
             icon="🚚" 
             color="critical" 
           />
           <StatCard 
             title={t('zrExpress.netRevenue')} 
-            value={`${stats.netRevenue.toLocaleString()} ${t('general.currency')}`} 
+            value={formatCurrency(stats.netRevenue)} 
             icon="💎" 
             color="success" 
           />

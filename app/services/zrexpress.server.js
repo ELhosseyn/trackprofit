@@ -30,6 +30,8 @@ export class ZRExpressService {
         body: JSON.stringify({})
       });
 
+      console.log('ZRExpress API response status:', response.status);
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Validation error response:', errorText);
@@ -38,6 +40,7 @@ export class ZRExpressService {
           if (errorJson.fault) {
             throw new Error(errorJson.fault.faultstring || 'بيانات الاعتماد غير صالحة');
           }
+          throw new Error(JSON.stringify(errorJson) || 'بيانات الاعتماد غير صالحة');
         } catch (e) {
           throw new Error(errorText || 'بيانات الاعتماد غير صالحة');
         }
@@ -45,6 +48,8 @@ export class ZRExpressService {
 
       // Try to parse the response to ensure it's valid
       const data = await response.json();
+      console.log('ZRExpress API response data:', JSON.stringify(data).substring(0, 200) + '...');
+      
       if (!Array.isArray(data)) {
         throw new Error('استجابة غير صالحة من الخادم');
       }
@@ -52,7 +57,7 @@ export class ZRExpressService {
       return { success: true };
     } catch (error) {
       console.error('ZRExpress validation error:', error);
-      throw error;
+      return { success: false, error: error.message || 'حدث خطأ أثناء التحقق من بيانات الاعتماد' };
     }
   }
 

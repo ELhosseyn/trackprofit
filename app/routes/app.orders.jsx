@@ -1,61 +1,17 @@
 import { useState, useEffect, useCallback, useMemo, Suspense, lazy, useRef } from "react";
 import { json } from "@remix-run/node";
-import { useLoaderData, useActionData, useSubmit, useNavigation, useSearchParams, useFetcher, useRevalidator } from "@remix-run/react";
+import { useLoaderData, useActionData, useSubmit, useNavigation, useSearchParams, useFetcher } from "@remix-run/react";
 import { 
   Page, Text, Card, Button, Modal, TextField, Select, 
-  Toast, Frame, FormLayout, Pagination, Banner, 
+  Toast, Frame, FormLayout, DataTable, Pagination, Banner, 
   Badge, ChoiceList, DatePicker, Loading, Checkbox,
   Form, Icon, Popover, Tooltip, Layout, Spinner, Box
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import { ZRExpressService } from "../services/zrexpress.server";
-import { prisma } from "../db.server";
+import prisma from "../db.server";
 import { useLanguage } from "../utils/i18n/LanguageContext.jsx";
 import communesData from "../../public/data/communes.json";
-import { generateMeta, generateSchemaData, preloadResources } from "../utils/seo.js";
-import { formatCurrency, formatNumber, formatPercentage, formatDate } from "../utils/formatters.js";
-import { LoadingFallback } from "../components/LazyComponents.jsx";
-import { initPerformanceMonitoring, markPerformance, measurePerformance, PERF_MARKS } from "../utils/performance.js";
-
-// Add requestIdleCallback polyfill for browsers that don't support it
-const requestIdleCallback = 
-  typeof window !== 'undefined' 
-    ? window.requestIdleCallback || 
-      ((cb) => {
-        const start = Date.now();
-        return setTimeout(() => {
-          cb({
-            didTimeout: false,
-            timeRemaining: () => Math.max(0, 50 - (Date.now() - start))
-          });
-        }, 1);
-      }) 
-    : (cb) => setTimeout(cb, 1);
-
-// Lazy load components with prefetching hints
-const LazyDataTable = lazy(() => {
-  markPerformance('datatable-import-start');
-  return import("@shopify/polaris").then(module => {
-    markPerformance('datatable-import-end');
-    return { default: module.DataTable };
-  });
-});
-
-const LazyVirtualizedDataTable = lazy(() => {
-  markPerformance('virtual-table-import-start');
-  return import("../components/VirtualizedDataTable.jsx").then(module => {
-    markPerformance('virtual-table-import-end');
-    return { default: module.default };
-  });
-});
-
-const LazyStatCard = lazy(() => {
-  markPerformance('statcard-import-start');
-  return import("../components/StatCard.jsx").then(module => {
-    markPerformance('statcard-import-end');
-    return { default: module.default };
-  });
-});
 
 // Define our own Stack components to replace Shopify Polaris ones
 const BlockStack = ({ children, gap = "0", ...props }) => {
@@ -139,75 +95,11 @@ if (!Layout.Section) {
   );
 }
 
-// Add metadata for SEO
-export const meta = () => {
-  return generateMeta({
-    title: "Orders & Shipments - TrackProfit",
-    description: "Track your Shopify store orders, manage shipments, and analyze profit margins with TrackProfit",
-    keywords: "shopify orders, shipment tracking, order management, profit tracking, zrexpress integration"
-  });
-};
-
-// Add preloaded resources
-export const links = () => {
-  return preloadResources([
-    { rel: "preconnect", href: "https://cdn.shopify.com" },
-    { rel: "dns-prefetch", href: "https://cdn.shopify.com" },
-    { rel: "preload", href: "/data/communes.json", as: "fetch", crossOrigin: "anonymous" },
-    { rel: "preload", href: "/data/wilayas.json", as: "fetch", crossOrigin: "anonymous" }
-  ]);
-};
-
-// Define server-side cache TTL (5 minutes)
-const CACHE_TTL = 5 * 60 * 1000;
-
 // LOADER FUNCTION
 export const loader = async ({ request }) => {
-  // Add cache control headers for CDN caching
-  const headers = new Headers();
-  headers.append('Cache-Control', 'public, max-age=60, s-maxage=300');
-  headers.append('Vary', 'Accept-Encoding');
-  
-  
   const { admin, session } = await authenticate.admin(request);
-  const url = new URL(request.url);
-  const forceRefresh = url.searchParams.get("refresh") === "true";
-  const pageSize = parseInt(url.searchParams.get("pageSize") || "20", 10);
-  const page = parseInt(url.searchParams.get("page") || "1", 10);
-  
-  // Cache key based on shop and pagination
-  const cacheKey = `orders-${session.shop}-${page}-${pageSize}`;
-  
+
   try {
-    // Try to get data from cache if not forcing refresh
-    if (!forceRefresh) {
-      try {
-        // Make sure prisma is available before attempting to use it
-        if (prisma && typeof prisma.appCache?.findUnique === 'function') {
-          const cachedData = await prisma.appCache.findUnique({
-            where: { key: cacheKey }
-          });
-          
-          if (cachedData && (Date.now() - cachedData.updatedAt.getTime() < CACHE_TTL)) {
-            console.log('Using cached orders data from', new Date(cachedData.updatedAt).toISOString());
-            const parsedData = JSON.parse(cachedData.value);
-            return json({
-              ...parsedData,
-              timestamp: Date.now(),
-              isFromCache: true
-            });
-          }
-        } else {
-          console.warn('Prisma client or appCache model not available, skipping cache check');
-        }
-      } catch (cacheError) {
-        console.error('Error accessing cache:', cacheError);
-        // Continue with fetching fresh data
-      }
-    }
-    
-    console.log('Cache miss or forced refresh, fetching fresh data');
-    
     // Get ZRExpress credentials
     let cities = [];
     try {
@@ -243,98 +135,106 @@ export const loader = async ({ request }) => {
       console.error('Database Error:', dbError);
     }
 
-    // Get orders through GraphQL with pagination - only fetch the current page
-    console.log(`Fetching orders page ${page} with size ${pageSize} via GraphQL...`);
-    
-    const query = `#graphql
-      query getOrders($first: Int!, $after: String) {
-        orders(first: $first, after: $after, sortKey: CREATED_AT, reverse: true) {
-          edges {
-            node {
-              id
-              name
-              createdAt
-              displayFinancialStatus
-              totalPriceSet {
-                shopMoney {
-                  amount
-                  currencyCode
+    // Get ALL orders through GraphQL with pagination
+    console.log('Fetching all orders via GraphQL...');
+    let allOrders = [];
+    let hasNextPage = true;
+    let cursor = null;
+
+    while (hasNextPage) {
+      const query = `#graphql
+        query getOrders($first: Int!, $after: String) {
+          orders(first: $first, after: $after, sortKey: CREATED_AT, reverse: true) {
+            edges {
+              node {
+                id
+                name
+                createdAt
+                displayFinancialStatus
+                totalPriceSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
                 }
-              }
-              note
-              lineItems(first: 20) {
-                edges {
-                  node {
-                    id
-                    title
-                    quantity
-                    variant {
+                note
+                lineItems(first: 20) {
+                  edges {
+                    node {
                       id
-                      inventoryItem {
+                      title
+                      quantity
+                      variant {
                         id
-                        unitCost {
+                        inventoryItem {
+                          id
+                          unitCost {
+                            amount
+                            currencyCode
+                          }
+                        }
+                      }
+                      product {
+                        id
+                        title
+                      }
+                      originalUnitPrice
+                      originalTotalSet {
+                        shopMoney {
                           amount
                           currencyCode
                         }
                       }
                     }
-                    product {
-                      id
-                      title
-                    }
-                    originalUnitPriceSet {
-                      shopMoney {
-                        amount
-                        currencyCode
-                      }
-                    }
-                    originalTotalSet {
-                      shopMoney {
-                        amount
-                        currencyCode
-                      }
-                    }
                   }
                 }
               }
+              cursor
             }
-            cursor
-          }
-          pageInfo {
-            hasNextPage
-            endCursor
-            hasPreviousPage
-            startCursor
+            pageInfo {
+              hasNextPage
+              endCursor
+            }
           }
         }
+      `;
+
+      const response = await admin.graphql(query, {
+        variables: {
+          first: 20,
+          after: cursor
+        }
+      });
+
+      const responseJson = await response.json();
+
+      if (responseJson.errors) {
+        console.error("GraphQL Errors:", responseJson.errors);
+        throw new Error(responseJson.errors[0].message);
       }
-    `;
 
-    const response = await admin.graphql(query, {
-      variables: {
-        first: pageSize,
-        after: null // We'll implement cursor-based pagination in the component
+      const orders = responseJson.data.orders;
+      allOrders = [...allOrders, ...orders.edges];
+      
+      hasNextPage = orders.pageInfo.hasNextPage;
+      cursor = orders.pageInfo.endCursor;
+      
+      console.log(`Fetched ${orders.edges.length} orders, total: ${allOrders.length}`);
+      
+      if (hasNextPage) {
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
-    });
-
-    const responseJson = await response.json();
-
-    if (responseJson.errors) {
-      console.error("GraphQL Errors:", responseJson.errors);
-      throw new Error(responseJson.errors[0].message);
     }
 
-    const orders = responseJson.data.orders;
-    const orderEdges = orders.edges;
-    
-    console.log(`Fetched ${orderEdges.length} orders, getting shipment status...`);
+    console.log(`All orders fetched: ${allOrders.length} orders, getting details...`);
 
-    // Get all shipments for these orders efficiently in a single query
-    const orderIds = orderEdges.map(({ node }) => node.id.split('/').pop());
+    // Get all shipments for these orders
     const shipments = await prisma.shipment.findMany({
       where: {
         shop: session.shop,
-        orderId: { in: orderIds }
+        orderId: {
+          in: allOrders.map(({ node }) => node.id.split('/').pop())
+        }
       },
       select: {
         orderId: true,
@@ -349,13 +249,13 @@ export const loader = async ({ request }) => {
       return acc;
     }, {});
 
-    // Get order additional details in parallel (much faster than sequential)
-    const orderDetails = await Promise.all(
-      orderEdges.map(async ({ node }) => {
-        const orderId = node.id.split('/').pop();
-        const shipment = shipmentsMap[orderId];
-        
+    const ordersWithDetails = await Promise.all(
+      allOrders.map(async ({ node }) => {
         try {
+          const orderId = node.id.split('/').pop();
+          const shipment = shipmentsMap[orderId];
+          console.log(`Fetching details for order ${orderId}...`);
+          
           const orderResponse = await fetch(
             `https://${session.shop}/admin/api/2024-01/orders/${orderId}.json`,
             {
@@ -368,14 +268,8 @@ export const loader = async ({ request }) => {
           );
 
           if (!orderResponse.ok) {
-            console.error(`Order ${orderId} fetch failed:`, orderResponse.status);
-            return {
-              ...node,
-              note_attributes: [],
-              shipping_address: {},
-              shipment_status: shipment ? shipment.status : null,
-              tracking_info: shipment ? shipment.tracking : null
-            };
+            console.error(`Order ${orderId} fetch failed:`, orderResponse.status, await orderResponse.text());
+            throw new Error(`HTTP error! status: ${orderResponse.status}`);
           }
 
           const orderData = await orderResponse.json();
@@ -383,80 +277,37 @@ export const loader = async ({ request }) => {
             ...node,
             note_attributes: orderData.order.note_attributes || [],
             shipping_address: orderData.order.shipping_address || {},
-            shipment_status: shipment ? shipment.status : null,
-            tracking_info: shipment ? shipment.tracking : null
+            shipment_status: shipment ? shipment.status : null, // Add shipment status
+            tracking_info: shipment ? shipment.tracking : null // Add tracking info
           };
         } catch (error) {
           console.error(`Failed to fetch details for order ${node.name}:`, error);
-          return {
-            ...node,
-            note_attributes: [],
-            shipping_address: {},
-            shipment_status: shipment ? shipment.status : null,
-            tracking_info: shipment ? shipment.tracking : null
-          };
+          return node;
         }
       })
     );
 
     console.log('All order details fetched successfully');
 
-    // Shopify API doesn't provide a direct count, so we'll use a default value for pagination
-    const totalCount = 250; // Default to a reasonable number
-
-    // Prepare result data
-    const resultData = {
+    return json({
       orders: {
-        edges: orderDetails.map(order => ({ node: order })),
-        pageInfo: orders.pageInfo
+        edges: ordersWithDetails.map(order => ({ node: order }))
       },
-      totalCount,
+      totalCount: ordersWithDetails.length,
       cities,
       error: null,
       shop: session.shop,
-      timestamp: Date.now(),
-      pageSize,
-      currentPage: page
-    };
-
-    // Store in cache for future requests
-    try {
-      // Make sure prisma is available and the appCache model exists
-      if (prisma && typeof prisma.appCache?.upsert === 'function') {
-        await prisma.appCache.upsert({
-          where: { key: cacheKey },
-          update: { 
-            value: JSON.stringify(resultData),
-            updatedAt: new Date()
-          },
-          create: {
-            key: cacheKey,
-            value: JSON.stringify(resultData),
-            updatedAt: new Date()
-          }
-        });
-        console.log('Orders data cached successfully');
-      } else {
-        console.warn('Prisma client or appCache model not available, skipping cache update');
-      }
-      console.log('Orders data cached successfully');
-    } catch (cacheError) {
-      console.error('Failed to cache orders data:', cacheError);
-      // Don't fail the request if caching fails
-    }
-
-    return json(resultData, { headers });
+      timestamp: Date.now()
+    });
 
   } catch (error) {
     console.error("Orders Query Error:", error);
     return json({
-      orders: { edges: [] },
+      orders: null,
       cities: [],
       error: error.message,
       shop: session.shop,
-      timestamp: Date.now(),
-      pageSize,
-      currentPage: page
+      timestamp: Date.now()
     }, { status: 500 });
   }
 };
@@ -607,115 +458,18 @@ export const action = async ({ request }) => {
 
 // COMPONENT
 export default function Orders() {
-  // Add component profiling in development
-  if (process.env.NODE_ENV !== 'production') {
-    console.time('Orders component render');
-    
-    useEffect(() => {
-      console.timeEnd('Orders component render');
-      return () => console.time('Orders component unmount');
-    }, []);
-  }
   const initialData = useLoaderData();
   const [data, setData] = useState(initialData);
   const navigation = useNavigation();
+  const [formattedOrders, setFormattedOrders] = useState([]);
   const isLoading = navigation.state === "loading";
   const fetcher = useFetcher();
-  const { revalidate } = useRevalidator();
-  const [searchParams, setSearchParams] = useSearchParams();
-  
-  // Initialize performance monitoring
-  useEffect(() => {
-    markPerformance(PERF_MARKS.APP_INIT);
-    initPerformanceMonitoring();
-    return () => {
-      // Measure total time on component unmount
-      measurePerformance('orders-page-lifetime', PERF_MARKS.APP_INIT, 'orders-page-unmount');
-    };
-  }, []);
-  
-  // Set a mark when initial rendering completes
-  useEffect(() => {
-    requestIdleCallback(() => {
-      markPerformance(PERF_MARKS.RENDERING_COMPLETE);
-      measurePerformance('initial-render-time', PERF_MARKS.APP_INIT, PERF_MARKS.RENDERING_COMPLETE);
-    });
-  }, []);
-  
+  const { language, t, isRTL } = useLanguage();
+
+  // Initialize all state variables
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const { language, t, isRTL, setLanguage } = useLanguage();
-  const isArabic = language === 'ar';
-  const [toastMessage, setToastMessage] = useState(null);
-  const [selectedDates, setSelectedDates] = useState({ start: new Date(), end: new Date() });
-  const [datePickerActive, setDatePickerActive] = useState(false);
-  const [filteredData, setFilteredData] = useState([]);
-
-  // Define the missing variables and options
-  const [filteredCommunes, setFilteredCommunes] = useState([]);
-  
-  // Define delivery, package types, and confirmation options
-  const deliveryTypes = useMemo(() => [
-    { label: t('orders.deliveryTypes.home'), value: "0" },
-    { label: t('orders.deliveryTypes.desk'), value: "1" }
-  ], [t]);
-  
-  const packageTypes = useMemo(() => [
-    { label: t('orders.packageTypes.standard'), value: "0" },
-    { label: t('orders.packageTypes.fragile'), value: "1" },
-    { label: t('orders.packageTypes.documents'), value: "2" }
-  ], [t]);
-  
-  const confirmedStatusOptions = useMemo(() => [
-    { label: t('orders.confirmationStatus.confirmed'), value: "1" },
-    { label: t('orders.confirmationStatus.unconfirmed'), value: "0" }
-  ], [t]);
-  
-  // Use memo to avoid recalculating data on every render
-  const memoizedOrdersData = useMemo(() => {
-    // Handle different data structures that might come from the server or cache
-    if (!data) return [];
-    
-    // Case 1: data.orders?.edges exists (standard structure)
-    if (data.orders?.edges) {
-      return data.orders.edges;
-    }
-    
-    // Case 2: data.orders is an array
-    if (Array.isArray(data.orders)) {
-      return data.orders;
-    }
-    
-    // Case 3: data itself is an array of orders
-    if (Array.isArray(data)) {
-      return data;
-    }
-    
-    // Default: return empty array
-    return [];
-  }, [data]);
-  
-  // Pagination state
-  const currentPage = parseInt(searchParams.get("page") || "1", 10);
-  const pageSize = parseInt(searchParams.get("pageSize") || "10", 10);
-  const totalCount = data.totalCount || 0;
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-  
-  // Use refs to track if we need to refresh data
-  const lastRefreshTimestamp = useRef(data.timestamp || Date.now());
-  const refreshInterval = 5 * 60 * 1000; // 5 minutes
-  
-  const [stats, setStats] = useState({
-    totalOrders: 0,
-    totalRevenue: 0,
-    totalCost: 0,
-    totalProfit: 0,
-    avgOrderValue: 0,
-    avgProfit: 0
-  });
-  
-  // Memoize the initial form state to avoid recreating on every render
-  const initialShipmentForm = useMemo(() => ({
+  const [shipmentForm, setShipmentForm] = useState({
     Client: "",
     MobileA: "",
     MobileB: "",
@@ -723,7 +477,7 @@ export default function Orders() {
     IDWilaya: "",
     Wilaya: "",
     Commune: "",
-    Total: "",
+    Total: "0",
     Note: "",
     TProduit: "",
     TypeLivraison: "0",
@@ -733,451 +487,571 @@ export default function Orders() {
     orderId: "",
     deliveryFee: "0",
     cancelFee: "0"
-  }), []);
-
-  // Initialize shipment form state with the initial values
-  const [shipmentForm, setShipmentForm] = useState(initialShipmentForm);
-
-  // Add toast markup
-  const toastMarkup = useMemo(() => {
-    return toastMessage ? (
-      <Toast
-        content={toastMessage.content}
-        error={toastMessage.error}
-        onDismiss={() => setToastMessage(null)}
-        duration={3000}
-      />
-    ) : null;
-  }, [toastMessage]);
-
-  // Add the missing handlePageChange function
-  const handlePageChange = useCallback((newPage) => {
-    if (newPage < 1 || newPage > totalPages) return;
-    
-    const newParams = new URLSearchParams(searchParams);
-    newParams.set("page", newPage.toString());
-    setSearchParams(newParams);
-    
-    // Refresh data when changing pages
-    revalidate();
-  }, [searchParams, setSearchParams, totalPages, revalidate]);
-
-  // Add the missing handlePageSizeChange function
-  const handlePageSizeChange = useCallback((value) => {
-    const newParams = new URLSearchParams(searchParams);
-    newParams.set("pageSize", value);
-    newParams.set("page", "1"); // Reset to first page when changing page size
-    setSearchParams(newParams);
-    
-    // Refresh data when changing page size
-    revalidate();
-  }, [searchParams, setSearchParams, revalidate]);
-
-  // Add the missing preloadNextPage function
-  const preloadNextPage = useCallback(() => {
-    if (currentPage < totalPages) {
-      // Logic to preload next page data if needed
-      console.log('Preloading next page data...');
-      // You could implement actual preloading logic here
-    }
-  }, [currentPage, totalPages]);
-
-  // Add the missing handleShipmentSubmit function
-  const handleShipmentSubmit = useCallback(() => {
-    // Basic validation
-    const requiredFields = ['Client', 'MobileA', 'Adresse', 'IDWilaya', 'Commune', 'Total', 'TProduit'];
-    const missingFields = requiredFields.filter(field => !shipmentForm[field]);
-    
-    if (missingFields.length > 0) {
-      setToastMessage({
-        content: t('orders.missingRequiredFields'),
-        error: true
+  });
+  
+  // Debug state changes
+  useEffect(() => {
+    if (selectedOrder || isModalOpen) {
+      console.log("State changed:", {
+        isModalOpen,
+        hasSelectedOrder: !!selectedOrder,
+        hasShipmentForm: !!shipmentForm
       });
-      return;
+    }
+  }, [isModalOpen, selectedOrder, shipmentForm]);
+  useEffect(() => {
+    console.log('State changed:', {
+      isModalOpen,
+      selectedOrder: selectedOrder?.id,
+      shipmentForm: !!shipmentForm
+    });
+  }, [isModalOpen, selectedOrder, shipmentForm]);
+
+  const isArabic = language === 'ar';
+  const [toastMessage, setToastMessage] = useState(null);
+  const [selectedDates, setSelectedDates] = useState({ start: new Date(), end: new Date() });
+  const [datePickerActive, setDatePickerActive] = useState(false);
+  const [filteredData, setFilteredData] = useState([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const rowsPerPage = 10;
+  const [stats, setStats] = useState({
+    totalOrders: 0,
+    totalRevenue: 0,
+    totalCost: 0,
+    totalProfit: 0,
+    avgOrderValue: 0,
+    avgProfit: 0
+  });
+
+  const deliveryTypes = [
+    { label: t('orders.deliveryTypes.home'), value: "0" },
+    { label: t('orders.deliveryTypes.office'), value: "1" }
+  ];
+
+  const packageTypes = [
+    { label: t('orders.packageTypes.regular'), value: "0" },
+    { label: t('orders.packageTypes.exchange'), value: "1" }
+  ];
+  
+  const confirmedStatusOptions = [
+    { label: t('orders.confirmationStatus.confirmed'), value: "1" },
+    { label: t('orders.confirmationStatus.notConfirmed'), value: "0" }
+  ];
+  
+  // Filter communes based on selected wilaya
+  const filteredCommunes = useMemo(() => {
+    if (shipmentForm.IDWilaya) {
+      // Convert IDWilaya to wilaya_code format (e.g. 1 -> "01")
+      const wilayaCode = shipmentForm.IDWilaya.toString().padStart(2, '0');
+      const communes = communesData.filter(commune => commune.wilaya_code === wilayaCode);
+      
+      // If we have a commune value but it's not in the list, try to find a match
+      if (shipmentForm.Commune && communes.length > 0) {
+        // Split the commune name into words for matching
+        const communeWords = shipmentForm.Commune.toLowerCase().split(/\s+/).filter(word => word.length > 1);
+        
+        // Check if we have an exact match
+        const hasExactMatch = communes.some(item => 
+          item.commune_name_ascii.toLowerCase() === shipmentForm.Commune.toLowerCase() ||
+          item.commune_name.toLowerCase() === shipmentForm.Commune.toLowerCase()
+        );
+        
+        // Check if we have a word match (any word from original commune name exists in available communes)
+        const hasWordMatch = communes.some(item => {
+          const itemNameLower = item.commune_name_ascii.toLowerCase();
+          return communeWords.some(word => itemNameLower.includes(word));
+        });
+        
+        console.log(`Filtered communes for wilaya ${shipmentForm.IDWilaya} (${wilayaCode}):`, 
+          communes.length, 
+          'Selected commune:', shipmentForm.Commune,
+          'Search words:', communeWords,
+          'Has exact match:', hasExactMatch,
+          'Has word match:', hasWordMatch
+        );
+      } else {
+        console.log(`Filtered communes for wilaya ${shipmentForm.IDWilaya} (${wilayaCode}):`, 
+          communes.length, 
+          'Selected commune:', shipmentForm.Commune);
+      }
+      
+      return communes;
+    }
+    return [];
+  }, [shipmentForm.IDWilaya, shipmentForm.Commune, communesData]);
+
+  const dateRangePresets = useMemo(() => [
+    { label: t('orders.datePresets.today'), value: 'daily' },
+    { label: t('orders.datePresets.last7Days'), value: '7-day' },
+    { label: t('orders.datePresets.thisMonth'), value: 'monthly' },
+    { label: t('orders.datePresets.last3Months'), value: '3-month' },
+    { label: t('orders.datePresets.last6Months'), value: '6-month' },
+    { label: t('orders.datePresets.thisYear'), value: 'yearly' },
+  ], [t]);
+
+  const getPresetDates = useCallback((preset) => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    switch (preset) {
+      case 'daily': return { start: today, end: now };
+      case '7-day': const sevenDaysAgo = new Date(today); sevenDaysAgo.setDate(today.getDate() - 6); return { start: sevenDaysAgo, end: now };
+      case 'monthly': return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: now };
+      case '3-month': return { start: new Date(now.getFullYear(), now.getMonth() - 3, 1), end: now };
+      case '6-month': return { start: new Date(now.getFullYear(), now.getMonth() - 6, 1), end: now };
+      case 'yearly': return { start: new Date(now.getFullYear(), 0, 1), end: now };
+      default: return { start: today, end: now };
+    }
+  }, []);
+
+  const handleDatePresetClick = useCallback((preset) => {
+    setSelectedDates(getPresetDates(preset));
+    setDatePickerActive(false);
+  }, [getPresetDates]);
+
+  const handleDateChange = useCallback(({ start, end }) => {
+    setSelectedDates({ start, end });
+    setDatePickerActive(false);
+  }, []);
+
+  const getCreatedAt = (node) => new Date(node.createdAt);
+
+  const getEarliestOrderDate = useCallback(() => {
+    if (!Array.isArray(data.orders.edges) || data.orders.edges.length === 0) return new Date();
+    return data.orders.edges.reduce((min, edge) => {
+      const d = getCreatedAt(edge.node);
+      return d < min ? d : min;
+    }, new Date());
+  }, [data.orders.edges]);
+
+  const filterOrdersByDateRange = useCallback((start, end) => {
+    if (!Array.isArray(data.orders.edges)) return [];
+    const startDate = new Date(start); startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(end); endDate.setHours(23, 59, 59, 999);
+    return data.orders.edges.filter((edge) => {
+      const createdAt = getCreatedAt(edge.node);
+      return createdAt >= startDate && createdAt <= endDate;
+    });
+  }, [data.orders.edges]);
+
+  useEffect(() => {
+    if (data.orders.edges.length > 0) {
+      const minDate = getEarliestOrderDate();
+      setSelectedDates({ start: minDate, end: new Date() });
+    }
+  }, [data.orders.edges.length, getEarliestOrderDate]);
+
+  useEffect(() => {
+    const filtered = filterOrdersByDateRange(selectedDates.start, selectedDates.end);
+    setFilteredData(filtered);
+    setCurrentPage(1);
+
+    let totalOrders = 0, totalRevenue = 0, totalCost = 0, totalProfit = 0;
+    filtered.forEach(({ node }) => {
+      totalOrders++;
+      const orderAmount = parseFloat(node.totalPriceSet?.shopMoney?.amount || 0);
+      totalRevenue += orderAmount;
+      
+      // Calculate cost if available
+      let orderCost = 0;
+      node.lineItems?.edges.forEach(({ node: item }) => {
+        const quantity = item.quantity || 1;
+        const costPerItem = parseFloat(item.variant?.inventoryItem?.unitCost?.amount || 0);
+        orderCost += (costPerItem * quantity);
+      });
+      
+      totalCost += orderCost;
+      const orderProfit = orderAmount - orderCost;
+      totalProfit += orderProfit;
+    });
+
+    setStats({
+      totalOrders,
+      totalRevenue: Number(totalRevenue.toFixed(2)),
+      totalCost: Number(totalCost.toFixed(2)),
+      totalProfit: Number(totalProfit.toFixed(2)),
+      avgOrderValue: totalOrders > 0 ? Number((totalRevenue / totalOrders).toFixed(2)) : 0,
+      avgProfit: totalOrders > 0 ? Number((totalProfit / totalOrders).toFixed(2)) : 0
+    });
+  }, [selectedDates, data.orders.edges, filterOrdersByDateRange]);
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('fr-CA');
+  };
+
+  // Default wilaya for when no city is selected
+  const defaultWilaya = useMemo(() => 
+    data.cities?.[0] || { value: "16", label: "Alger" }
+  , [data.cities]);
+
+  const handleOrderSelect = useCallback((order) => {
+    setSelectedOrder(order);
+    console.log("Selected order:", order);
+    
+    // Pre-populate form with order data and ensure required fields exist
+    const shippingAddress = order.shipping_address || {};
+    const noteAttributes = Array.isArray(order.note_attributes) ? order.note_attributes : [];
+    const orderTotal = order.totalPriceSet?.shopMoney?.amount || "0";
+    
+    // Extract information from note_attributes
+    const findNoteAttribute = (names, defaultValue = "") => {
+      if (!Array.isArray(names)) names = [names];
+      for (const name of names) {
+        const attribute = noteAttributes.find(attr => 
+          attr.name.toLowerCase() === name.toLowerCase() ||
+          attr.name.toLowerCase().replace(/[()]/g, '') === name.toLowerCase()
+        );
+        if (attribute && attribute.value) return attribute.value;
+      }
+      return defaultValue;
+    };
+    
+    // Extract customer information from note_attributes with fallback to shipping_address
+    const firstName = findNoteAttribute(['First name', 'Name']);
+    const lastName = findNoteAttribute(['Last name']);
+    const customerName = lastName ? `${firstName} ${lastName}`.trim() : firstName.trim();
+    
+    // Get primary phone with various possible field names
+    let primaryPhone = findNoteAttribute(
+      ['Phone number', 'Phone', 'MobileA'], 
+      shippingAddress.phone
+    );
+
+    // Clean up phone number
+    if (primaryPhone.startsWith("+213")) {
+      primaryPhone = primaryPhone.replace("+213", "0");
+    }
+    primaryPhone = primaryPhone.replace(/\s+/g, "");
+
+    // Get secondary phone if available
+    const secondaryPhone = findNoteAttribute([
+      'phone_2',
+      'secondary_phone',
+      'Phone number 2',
+      'MobileB'
+    ]);
+
+    // Process address from note_attributes with multiple possible field names
+    const address1 = findNoteAttribute(['Address', 'Adresse'], shippingAddress.address1);
+    const address2 = findNoteAttribute(['Address 2', 'Adresse 2'], shippingAddress.address2);
+
+    // Get wilaya and commune information from various possible fields
+    const rawCity = findNoteAttribute(['city', 'Wilaya الولاية', 'Province (State)'], shippingAddress.city);
+    const rawProvince = findNoteAttribute(['Province', 'Province (State)'], shippingAddress.province);
+    const rawCommune = findNoteAttribute(['Commune', 'City'], '');
+
+    let wilayaId = "";
+    let wilayaName = "";
+    let commune = "";
+
+    // Normalize the cities list with padded wilaya IDs
+    const normalizedCities = data.cities?.map(city => ({
+      ...city,
+      normalizedValue: city.value.toString().padStart(2, '0')
+    }));
+
+    // First attempt: Try to match the "XX - Name" format
+    const cityRegex = /^(\d+)\s*-\s*(.+?)(?:\s+[\u0600-\u06FF]+)?$/;
+    const cityMatch = rawCity.match(cityRegex);
+
+    if (cityMatch) {
+      // Format: "05 - Batna باتنة" or "03 - Laghouat الأغواط"
+      const rawId = cityMatch[1].trim();
+      // Important: Store the normalized ID as a string without leading zeros for IDWilaya
+      wilayaId = parseInt(rawId).toString(); // Without leading zeros for IDWilaya
+      wilayaName = cityMatch[2].trim();
+      // Use commune from explicit commune field, or fallback to province
+      commune = rawCommune || rawProvince || '';
+    } else {
+      // Second attempt: Try to find wilaya in the cities list by name
+      const matchedCity = normalizedCities?.find(city => 
+        city.label.toLowerCase() === rawCity?.toLowerCase() ||
+        rawCity?.toLowerCase().includes(city.label.toLowerCase())
+      );
+
+      if (matchedCity) {
+        // Important: Store the normalized ID as a string without leading zeros for IDWilaya
+        wilayaId = parseInt(matchedCity.normalizedValue).toString(); // Without leading zeros for IDWilaya
+        wilayaName = matchedCity.label;
+        commune = rawCommune || rawProvince || rawCity || '';
+      } else {
+        // Third attempt: Try to extract wilaya ID from city or province
+        const extractWilayaId = (str) => {
+          const match = str?.match(/^(\d+)/);
+          return match ? match[1] : null;
+        };
+
+        const cityWilayaId = extractWilayaId(rawCity);
+        const provinceWilayaId = extractWilayaId(rawProvince);
+        
+        // Add padding for comparison with normalizedCities
+        const paddedCityWilayaId = cityWilayaId ? cityWilayaId.toString().padStart(2, '0') : null;
+        const paddedProvinceWilayaId = provinceWilayaId ? provinceWilayaId.toString().padStart(2, '0') : null;
+        
+        const matchById = normalizedCities?.find(city => 
+          city.normalizedValue === paddedCityWilayaId || 
+          city.normalizedValue === paddedProvinceWilayaId
+        );
+
+        if (matchById) {
+          // Important: Store the normalized ID as a string without leading zeros for IDWilaya
+          wilayaId = parseInt(matchById.normalizedValue).toString(); // Without leading zeros for IDWilaya
+          wilayaName = matchById.label;
+          commune = matchById.normalizedValue === paddedProvinceWilayaId ? rawCity : (rawCommune || rawProvince || '');
+        }
+      }
+    }
+
+    // Clean up commune - make sure it's not the same as wilaya name
+    if (commune && commune.toLowerCase().includes(wilayaName.toLowerCase())) {
+      commune = '';
+    }
+
+    // Try to match commune with available communes for this wilaya
+    // Use padded wilaya ID for matching with communes data
+    const paddedWilayaId = wilayaId ? wilayaId.toString().padStart(2, '0') : '';
+    const availableCommunes = communesData?.filter(item => 
+      item?.wilaya_code === paddedWilayaId
+    ) || [];
+
+    console.log(`Available communes for wilaya ${wilayaId} (${paddedWilayaId}):`, availableCommunes.length);
+
+    if (commune && availableCommunes.length > 0) {
+      // Split the commune name into words for matching
+      const communeWords = commune.toLowerCase().split(/\s+/).filter(word => word.length > 1);
+      
+      console.log("Looking for commune match in order init:", {
+        original: commune,
+        words: communeWords,
+        availableCommunes: availableCommunes.map(c => c.commune_name_ascii)
+      });
+      
+      // Try different matching strategies in order of precision
+      let matchedCommune = null;
+      
+      // 1. Try exact match
+      matchedCommune = availableCommunes.find(item =>
+        item.commune_name_ascii.toLowerCase() === commune.toLowerCase() ||
+        item.commune_name.toLowerCase() === commune.toLowerCase()
+      );
+      
+      // 2. If no exact match, try scoring by word matches
+      if (!matchedCommune && communeWords.length > 0) {
+        // Score communes by how many words from the original commune name they match
+        const scoredCommunes = availableCommunes.map(item => {
+          const itemNameLower = item.commune_name_ascii.toLowerCase();
+          // Count how many words from the commune match this commune name
+          const matchCount = communeWords.filter(word => 
+            itemNameLower.includes(word)
+          ).length;
+          return { item, matchCount };
+        });
+        
+        // Sort by match count (descending)
+        scoredCommunes.sort((a, b) => b.matchCount - a.matchCount);
+        
+        // Get the commune with the highest match count
+        if (scoredCommunes.length > 0 && scoredCommunes[0].matchCount > 0) {
+          matchedCommune = scoredCommunes[0].item;
+          console.log(`Found word match in order init: ${matchedCommune.commune_name_ascii} with ${scoredCommunes[0].matchCount} matching words`);
+        }
+      }
+      
+      if (matchedCommune) {
+        commune = matchedCommune.commune_name_ascii || matchedCommune.commune_name;
+        console.log("Found matching commune in order init:", commune);
+      } else {
+        console.log("No matching commune found among available communes in order init");
+      }
     }
     
-    // Prepare form data for submission
-    const formData = new FormData();
-    formData.append('_action', 'createShipment');
+    // Prepare address parts without including wilaya/commune to avoid duplication
+    const addressParts = [address1, address2].filter(Boolean);
+    const fullAddress = addressParts.join(", ");
     
-    // Add all shipment form fields
+    // Get product information
+    let productDescription = "";
+    if (order.lineItems?.edges?.length > 0) {
+      const items = order.lineItems.edges.map(({ node }) => 
+        `${node.title} (x${node.quantity})`
+      );
+      productDescription = items.join(", ");
+    } else {
+      productDescription = 'N/A';
+    }
+    
+    // Get note content
+    const noteContent = order.note || "";
+    
+    const updatedForm = {
+      ...shipmentForm,
+      Client: customerName || 'N/A',
+      MobileA: primaryPhone || 'N/A',
+      MobileB: secondaryPhone || '',
+      Adresse: fullAddress || 'N/A',
+      // For IDWilaya, we want the unpadded version as it matches the Select component value format
+      IDWilaya: wilayaId || defaultWilaya.value.toString(), // Already normalized (no leading zeros)
+      Wilaya: wilayaName || defaultWilaya.label,
+      Commune: commune || '',
+      Total: orderTotal,
+      TProduit: productDescription || order.name || 'N/A',
+      orderId: order.id.split('/').pop(),
+      Note: order.note || '',
+      TypeLivraison: "0", // Default to home delivery
+      TypeColis: "0",     // Default to regular package
+      Confrimee: "1",     // Default to confirmed
+      DeliveryPartner: "zrexpress",
+      deliveryFee: "0",
+      cancelFee: "0"
+    };
+    
+    console.log("Updated shipment form:", updatedForm);
+    console.log("Wilaya ID format:", {
+      raw: wilayaId,
+      padded: wilayaId?.toString().padStart(2, '0'),
+      defaultValue: defaultWilaya.value
+    });
+    
+    // Update state in a batch to ensure consistent render
+    const batch = () => {
+      setShipmentForm(updatedForm);
+      setIsModalOpen(true);
+    };
+    
+    // Execute state updates
+    batch();
+    
+    console.log("State updates requested");
+  }, [shipmentForm, defaultWilaya, communesData]);
+
+  const handleShipmentSubmit = useCallback(async (e) => {
+    e.preventDefault();
+    
+    if (fetcher.state === "submitting") return;
+    
+    // Calculate the total cost of all items in the order
+    let totalCost = 0;
+    let lineItems = [];
+    
+    if (selectedOrder?.lineItems?.edges) {
+      selectedOrder.lineItems.edges.forEach(({ node }) => {
+        const quantity = node.quantity || 1;
+        const unitCost = parseFloat(node.variant?.inventoryItem?.unitCost?.amount || 0);
+        const price = parseFloat(node.originalUnitPrice || 0);
+        const itemTotalCost = unitCost * quantity;
+        const itemTotalRevenue = price * quantity;
+        const itemProfit = itemTotalRevenue - itemTotalCost;
+        
+        totalCost += itemTotalCost;
+        
+        // Store line item COGS info for database
+        lineItems.push({
+          productId: node.product?.id?.split('/').pop() || '',
+          variantId: node.variant?.id?.split('/').pop() || '',
+          title: node.title,
+          quantity,
+          unitCost,
+          price,
+          totalCost: itemTotalCost,
+          totalRevenue: itemTotalRevenue,
+          profit: itemProfit
+        });
+      });
+    }
+    
+    // Calculate revenue and profit
+    const totalRevenue = parseFloat(shipmentForm.Total || 0);
+    const profit = totalRevenue - totalCost;
+    
+    // Prepare form data
+    const formData = new FormData();
     Object.entries(shipmentForm).forEach(([key, value]) => {
       formData.append(key, value);
     });
     
-    // Add additional fields
-    if (selectedOrder) {
-      formData.append('orderId', selectedOrder.id.split('/').pop());
-      
-      // Calculate and add total cost information
-      let totalCost = 0;
-      selectedOrder.lineItems?.edges.forEach(({ node }) => {
-        const quantity = node.quantity || 1;
-        const unitCost = parseFloat(node.variant?.inventoryItem?.unitCost?.amount || 0);
-        totalCost += (unitCost * quantity);
-      });
-      
-      formData.append('totalCost', totalCost.toString());
-      
-      // Add line items information as JSON
-      const lineItemsData = selectedOrder.lineItems?.edges.map(({ node }) => ({
-        productId: node.product?.id,
-        variantId: node.variant?.id,
-        title: node.title,
-        quantity: node.quantity || 1,
-        unitCost: parseFloat(node.variant?.inventoryItem?.unitCost?.amount || 0),
-        unitPrice: parseFloat(node.originalUnitPriceSet?.shopMoney?.amount || 0)
-      }));
-      
-      formData.append('lineItems', JSON.stringify(lineItemsData || []));
-    }
+    // Add
+    formData.append("totalCost", totalCost.toString());
+    formData.append("totalRevenue", totalRevenue.toString());
+    formData.append("totalProfit", profit.toString());
+    formData.append("lineItems", JSON.stringify(lineItems));
+    formData.append("_action", "createShipment");
     
-    // Submit the form
-    fetcher.submit(formData, { method: 'post' });
-  }, [shipmentForm, fetcher, selectedOrder, t]);
+    console.log("Creating shipment with COGS data:", {
+      totalCost,
+      totalRevenue,
+      profit,
+      items: lineItems.map(item => ({
+        title: item.title,
+        quantity: item.quantity,
+        unitCost: item.unitCost,
+        price: item.price,
+        profit: item.profit
+      }))
+    });
+    
+    fetcher.submit(formData, { method: "post" });
+    setIsModalOpen(false);
+  }, [fetcher, shipmentForm, selectedOrder]);
 
-  // Effect to update filtered communes when wilaya changes
   useEffect(() => {
-    if (shipmentForm.IDWilaya) {
-      try {
-        const wilayaId = parseInt(shipmentForm.IDWilaya, 10);
-        // Filter communes data based on selected wilaya
-        const communes = communesData.filter(commune => 
-          commune.wilaya_id === wilayaId
-        );
-        setFilteredCommunes(communes);
-      } catch (error) {
-        console.error('Error filtering communes:', error);
-        setFilteredCommunes([]);
-      }
-    } else {
-      setFilteredCommunes([]);
-    }
-  }, [shipmentForm.IDWilaya]);
-
-  // Get order status tone for the badge
-  const getOrderStatusTone = (status) => {
-    if (!status) return "critical";
-    status = status.toLowerCase();
-    if (status.includes('paid')) return "success";
-    if (status.includes('refund')) return "warning";
-    if (status.includes('pending')) return "info";
-    return "critical";
-  };
-  
-  // Get order fulfillment tone for the badge
-  const getOrderFulfillmentTone = (status) => {
-    if (!status) return "critical";
-    status = status.toLowerCase();
-    if (status.includes('fulfilled')) return "success";
-    if (status.includes('partial')) return "warning";
-    if (status.includes('restocked')) return "info";
-    return "critical";
-  };
-  
-  // Handler for viewing order details
-  const handleViewOrderDetails = (order) => {
-    setSelectedOrder(order);
-    setIsModalOpen(true);
-    
-    // Pre-fill the shipment form with order details
-    if (order) {
-      const shippingAddress = order.shipping_address || {};
-      setShipmentForm(prev => ({
-        ...initialShipmentForm,
-        Client: `${shippingAddress.first_name || ''} ${shippingAddress.last_name || ''}`.trim() || prev.Client,
-        MobileA: shippingAddress.phone || prev.MobileA,
-        Adresse: shippingAddress.address1 || prev.Adresse,
-        TProduit: order.name || prev.TProduit,
-        Total: order.totalPriceSet?.shopMoney?.amount || prev.Total,
-        orderId: order.id?.split('/').pop() || ''
-      }));
-    }
-  };
-  
-  // Define table headings based on language
-  const tableHeadings = [
-    t('orders.orderNumber'),
-    t('orders.customer'),
-    t('orders.total'),
-    t('orders.date'),
-    t('orders.status'),
-    t('orders.fulfillment'),
-    t('orders.payment'),
-    t('orders.delivery'),
-    t('orders.profit'),
-    t('orders.actions')
-  ];
-  
-  // Create table rows from filtered data
-  const tableRows = filteredData.map(order => [
-    order.name || '-',
-    order.customer?.displayName || t('orders.anonymous'),
-    formatCurrency(order.totalPriceSet?.shopMoney?.amount || 0),
-    formatDate(order.createdAt),
-    <Badge tone={getOrderStatusTone(order.displayFinancialStatus)}>{order.displayFinancialStatus || t('orders.unknown')}</Badge>,
-    <Badge tone={getOrderFulfillmentTone(order.displayFulfillmentStatus)}>{order.displayFulfillmentStatus || t('orders.unfulfilled')}</Badge>,
-    order.paymentGatewayNames?.join(', ') || '-',
-    order.shipping_address?.city || t('orders.noAddress'),
-    order.totalCost ? formatCurrency(order.totalPriceSet?.shopMoney?.amount - order.totalCost) : '-',
-    <Button size="slim" onClick={() => handleViewOrderDetails(order)}>
-      {t('orders.view')}
-    </Button>
-  ]);
-  
-  // Table footer content
-  const tableFooterContent = `${t('orders.showing')} ${filteredData.length} ${t('orders.of')} ${totalCount} ${t('orders.orders')}`;
-
-  markPerformance(PERF_MARKS.RENDERING);
-  
-  // Use effect to update filtered data when orders data changes
-  useEffect(() => {
-    console.log('Orders data changed:', memoizedOrdersData);
-    console.log('Raw data structure:', data);
-    
-    // If data error exists, show it
-    if (data.error) {
-      console.error('Data error:', data.error);
-      setToastMessage({
-        content: `Error loading orders: ${data.error}`,
-        error: true
-      });
-    }
-    
-    // Safety check for valid data structure
-    if (memoizedOrdersData && Array.isArray(memoizedOrdersData) && memoizedOrdersData.length > 0) {
-      // Transform edges to nodes for easier processing
-      const processedData = memoizedOrdersData.map(edge => {
-        // Handle both formats: {node: {...}} and direct objects
-        return edge.node || edge;
-      }).filter(Boolean); // Remove any undefined items
-      
-      console.log('Processed data:', processedData);
-      setFilteredData(processedData);
-      
-      // Calculate stats for the dashboard
-      const revenue = processedData.reduce((sum, order) => {
-        const amount = order.totalPriceSet?.shopMoney?.amount || 
-                       (order.totalPrice && typeof order.totalPrice === 'string' ? order.totalPrice : '0');
-        return sum + parseFloat(amount || 0);
-      }, 0);
-      
-      const costs = processedData.reduce((sum, order) => sum + parseFloat(order.totalCost || 0), 0);
-      const profit = revenue - costs;
-      
-      setStats({
-        totalOrders: processedData.length,
-        totalRevenue: revenue,
-        totalCost: costs,
-        totalProfit: profit,
-        avgOrderValue: processedData.length > 0 ? revenue / processedData.length : 0,
-        avgProfit: processedData.length > 0 ? profit / processedData.length : 0
-      });
-    } else {
-      console.log('No orders data available or invalid structure, clearing filtered data');
-      // Check if we need to load mock data for testing
-      const useMockData = new URLSearchParams(window.location.search).get('mock') === 'true';
-      
-      if (useMockData) {
-        console.log('Loading mock data for testing...');
-        const mockOrders = Array.from({ length: 5 }, (_, i) => ({
-          id: `gid://shopify/Order/${i + 1}`,
-          name: `#${1000 + i}`,
-          createdAt: new Date().toISOString(),
-          displayFinancialStatus: 'Paid',
-          displayFulfillmentStatus: 'Fulfilled',
-          totalPriceSet: {
-            shopMoney: {
-              amount: (1000 + (i * 100)).toString(),
-              currencyCode: 'DZD'
-            }
-          },
-          customer: {
-            displayName: `Test Customer ${i + 1}`
-          },
-          shipping_address: {
-            city: 'Algiers'
-          },
-          totalCost: 500 + (i * 50)
-        }));
-        
-        setFilteredData(mockOrders);
-        
-        // Calculate stats
-        const revenue = mockOrders.reduce((sum, order) => sum + parseFloat(order.totalPriceSet.shopMoney.amount), 0);
-        const costs = mockOrders.reduce((sum, order) => sum + order.totalCost, 0);
-        const profit = revenue - costs;
-        
-        setStats({
-          totalOrders: mockOrders.length,
-          totalRevenue: revenue,
-          totalCost: costs,
-          totalProfit: profit,
-          avgOrderValue: revenue / mockOrders.length,
-          avgProfit: profit / mockOrders.length
+    if (fetcher.data && fetcher.state === "idle") {
+      if (fetcher.data.success) {
+        setToastMessage({
+          content: t('toast.shipmentCreated'),
+          error: false
         });
+        
+        // Optionally refresh data here
       } else {
-        setFilteredData([]);
+        setToastMessage({
+          content: t('errors.shipmentCreation', { error: fetcher.data.error }),
+          error: true
+        });
       }
     }
-  }, [memoizedOrdersData, data]);
-  
-  // Add effect to handle data loading
-  useEffect(() => {
-    if (initialData) {
-      console.log('Initial data loaded:', initialData);
-      
-      // If we detect that the data doesn't have the expected structure,
-      // try to fetch fresh data with refresh=true
-      if (!initialData.orders?.edges && !Array.isArray(initialData.orders)) {
-        console.log('Data structure not as expected, triggering refresh...');
-        const newParams = new URLSearchParams(searchParams);
-        newParams.set("refresh", "true");
-        setSearchParams(newParams);
-        revalidate();
-      }
-    }
-  }, [initialData, searchParams, setSearchParams, revalidate]);
-  
-  // Define date range presets
-  const dateRangePresets = [
-    { label: 'Today', value: 'today' },
-    { label: 'Yesterday', value: 'yesterday' },
-    { label: 'This Week', value: 'thisWeek' },
-    { label: 'Last Week', value: 'lastWeek' },
-    { label: 'This Month', value: 'thisMonth' },
-    { label: 'Last Month', value: 'lastMonth' },
-    { label: 'This Year', value: 'thisYear' }
-  ];
+  }, [fetcher.data, fetcher.state, t]);
 
-  // Get dates based on preset
-  const getPresetDates = (preset) => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
-    switch(preset) {
-      case 'today':
-        return { start: today, end: now };
-      
-      case 'yesterday': {
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        return { start: yesterday, end: new Date(today.getTime() - 1) };
-      }
-      
-      case 'thisWeek': {
-        const startOfWeek = new Date(today);
-        startOfWeek.setDate(today.getDate() - today.getDay());
-        return { start: startOfWeek, end: now };
-      }
-      
-      case 'lastWeek': {
-        const startOfLastWeek = new Date(today);
-        startOfLastWeek.setDate(today.getDate() - today.getDay() - 7);
-        const endOfLastWeek = new Date(today);
-        endOfLastWeek.setDate(today.getDate() - today.getDay() - 1);
-        return { start: startOfLastWeek, end: endOfLastWeek };
-      }
-      
-      case 'thisMonth': {
-        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-        return { start: startOfMonth, end: now };
-      }
-      
-      case 'lastMonth': {
-        const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-        const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
-        return { start: startOfLastMonth, end: endOfLastMonth };
-      }
-      
-      case 'thisYear': {
-        const startOfYear = new Date(today.getFullYear(), 0, 1);
-        return { start: startOfYear, end: now };
-      }
-      
-      default:
-        return { start: today, end: now };
-    }
-  };
-  
-  // Handler for date preset button click
-  const handleDatePresetClick = (preset) => {
-    const { start, end } = getPresetDates(preset);
-    setSelectedDates({ start, end });
-    
-    // Optionally, you can also trigger a data refresh here if needed
-    // revalidate();
-  };
-  
-  // Handler for date range change
-  const handleDateChange = (dates) => {
-    setSelectedDates(dates);
-  };
-  
-  // Refresh data function
-  const refreshData = async () => {
-    // Check if enough time has passed since the last refresh
-    const now = Date.now();
-    if (now - lastRefreshTimestamp.current < refreshInterval) {
-      console.log('Refresh skipped - interval not elapsed');
-      return;
-    }
-    
-    lastRefreshTimestamp.current = now;
-    console.log('Refreshing data...');
-    
-    // Option 1: Soft refresh - revalidate current data (useful if only timestamps have changed)
-    revalidate();
-    
-    // Option 2: Hard refresh - fetch fresh data from the server
-    // const freshData = await fetchDataFromServer();
-    // setData(freshData);
-  };
-  
-  // Periodically refresh data every minute
-  useEffect(() => {
-    const interval = setInterval(() => {
-      refreshData();
-    }, 60 * 1000); // 60 seconds
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / rowsPerPage));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const currentPageData = filteredData.slice((safeCurrentPage - 1) * rowsPerPage, safeCurrentPage * rowsPerPage);
 
-    return () => clearInterval(interval);
-  }, []);
-  
-  // Add a direct data loading function that bypasses the cache
-  const loadDirectData = useCallback(async () => {
-    console.log('Loading data directly without cache...');
-    try {
-      // Show loading state
-      setToastMessage({
-        content: 'Loading orders directly...',
-        error: false
-      });
-      
-      // Make a direct fetch request to the loader endpoint with cache bypass
-      const response = await fetch(`/app/orders?refresh=true&_data=routes%2Fapp.orders`);
-      if (!response.ok) {
-        throw new Error(`Failed to load data: ${response.status}`);
-      }
-      
-      const freshData = await response.json();
-      console.log('Direct data loaded:', freshData);
-      
-      // Update the data state
-      setData(freshData);
-      
-      setToastMessage({
-        content: 'Orders loaded successfully!',
-        error: false
-      });
-    } catch (error) {
-      console.error('Failed to load data directly:', error);
-      setToastMessage({
-        content: `Error loading data: ${error.message}`,
-        error: true
-      });
-    }
-  }, [setToastMessage, setData]);
-  
+  const StatCard = ({ title, value, icon, color = "subdued" }) => (
+    <Card padding="400">
+      <BlockStack gap="200">
+        <InlineStack align="space-between" blockAlign="start">
+          <Text variant="bodyMd" tone={color}>{title}</Text>
+          <div style={{ fontSize: '24px' }}>{icon}</div>
+        </InlineStack>
+        <Text variant="heading2xl" as="h3">{value}</Text>
+      </BlockStack>
+    </Card>
+  );
+
+  if (data.error) {
+    return (
+      <Page title={t('orders.title')}>
+        <Layout>
+          <Layout.Section>
+            <Banner status="critical">
+              <p>{t('errors.ordersLoading')}: {data.error}</p>
+              <p>{t('general.shop')}: {data.shop}</p>
+            </Banner>
+          </Layout.Section>
+        </Layout>
+      </Page>
+    );
+  }
+
+  const toastMarkup = toastMessage ? (
+    <Toast 
+      content={toastMessage.content} 
+      error={toastMessage.error} 
+      onDismiss={() => setToastMessage(null)} 
+      duration={4000} 
+    />
+  ) : null;
+
   return (
     <Frame>
       <Page
@@ -1205,26 +1079,9 @@ export default function Orders() {
                       <Text variant="headingLg" as="h2">{t('orders.dashboardTitle')}</Text>
                       <InlineStack gap="300" align="start">
                         {isLoading && <Badge tone="warning" size="large">{t('orders.updating')}</Badge>}
-                        {data.isFromCache && (
-                          <Badge tone="info" size="large">
-                            {t('orders.cachedData')} - {new Date(data.timestamp).toLocaleTimeString()}
-                          </Badge>
-                        )}
                       </InlineStack>
                     </BlockStack>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: isArabic ? 'flex-start' : 'flex-end', position: 'relative' }}>
-                      <Button onClick={() => {
-                        console.log('Manual refresh triggered');
-                        const newParams = new URLSearchParams(searchParams);
-                        newParams.set("refresh", "true");
-                        setSearchParams(newParams);
-                        revalidate();
-                      }} primary>
-                        🔄 Refresh Data
-                      </Button>
-                      <Button onClick={loadDirectData} tone="critical">
-                        ⚡ Direct Load (No Cache)
-                      </Button>
                       <InlineStack gap="200" wrap={false}>
                         {dateRangePresets.map(preset => (
                           <Button key={preset.value} size="slim" onClick={() => handleDatePresetClick(preset.value)}>
@@ -1261,14 +1118,12 @@ export default function Orders() {
 
           <Layout.Section>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-              <Suspense fallback={<LoadingFallback />}>
-                <LazyStatCard title={t('orders.stats.totalOrders')} value={stats.totalOrders} icon="🛒" color="success" />
-                <LazyStatCard title={t('orders.stats.totalRevenue')} value={formatCurrency(stats.totalRevenue)} icon="💵" color="info" />
-                <LazyStatCard title={t('orders.stats.totalCost')} value={formatCurrency(stats.totalCost)} icon="💸" color="warning" />
-                <LazyStatCard title={t('orders.stats.totalProfit')} value={formatCurrency(stats.totalProfit)} icon="💰" color="success" />
-                <LazyStatCard title={t('orders.stats.avgOrderValue')} value={formatCurrency(stats.avgOrderValue)} icon="💎" color="success" />
-                <LazyStatCard title={t('orders.stats.avgProfit')} value={formatCurrency(stats.avgProfit)} icon="📈" color="info" />
-              </Suspense>
+              <StatCard title={t('orders.stats.totalOrders')} value={stats.totalOrders} icon="🛒" color="success" />
+              <StatCard title={t('orders.stats.totalRevenue')} value={`${stats.totalRevenue} DZD`} icon="💵" color="info" />
+              <StatCard title={t('orders.stats.totalCost')} value={`${stats.totalCost} DZD`} icon="💸" color="warning" />
+              <StatCard title={t('orders.stats.totalProfit')} value={`${stats.totalProfit} DZD`} icon="💰" color="success" />
+              <StatCard title={t('orders.stats.avgOrderValue')} value={`${stats.avgOrderValue} DZD`} icon="💎" color="success" />
+              <StatCard title={t('orders.stats.avgProfit')} value={`${stats.avgProfit} DZD`} icon="📈" color="info" />
             </div>
           </Layout.Section>
 
@@ -1278,299 +1133,470 @@ export default function Orders() {
                 <div style={{ textAlign: 'center', padding: '2rem' }}>
                   <Spinner accessibilityLabel={t('orders.loadingOrders')} size="large" />
                 </div>
-              ) : !filteredData.length ? (
+              ) : !currentPageData.length ? (
                 <Box padding="400" style={{ textAlign: 'center' }}>
                   <Text variant="bodyMd" as="p">{t('orders.noOrdersInRange')}</Text>
                 </Box>
               ) : (
-                <Suspense fallback={<LoadingFallback />}>
-                  {filteredData.length <= 25 ? (
-                    <LazyDataTable
-                      columnContentTypes={['text', 'text', 'numeric', 'text', 'text', 'text', 'text', 'text', 'text', 'text']}
-                      headings={tableHeadings}
-                      rows={tableRows}
-                      footerContent={
-                        <div style={{
-                          padding: '16px',
-                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                          color: 'white',
-                          fontWeight: 'bold',
-                          textAlign: 'center'
-                        }}>
-                          {tableFooterContent}
-                        </div>
+                <>
+                  <DataTable
+                    columnContentTypes={['text', 'text', 'numeric', 'text', 'text', 'text', 'text', 'text', 'text', 'text']}
+                    headings={[
+                      `📅 ${t('orders.table.date')}`,
+                      `🔢 ${t('orders.table.order')}`,
+                      `� ${t('orders.table.total')}`,
+                      `👤 ${t('orders.table.customer')}`,
+                      `📱 ${t('orders.phone')} 1`,
+                      `📱 ${t('orders.phone')} 2`,
+                      `🏙️ ${t('orders.state')}`,
+                      `🏢 ${t('orders.city')}`,
+                      `📍 ${t('orders.table.status')}`,
+                      `🚚 ${t('orders.shipmentDetails')}`
+                    ]}
+                    rows={currentPageData.map(({ node }) => {
+                      // Extract customer name and phone from note_attributes
+                      const noteAttributes = node.note_attributes || [];
+                      const findNoteAttribute = (names) => {
+                        const nameArray = Array.isArray(names) ? names : [names];
+                        for (const name of nameArray) {
+                          const attr = noteAttributes.find(a => 
+                            a.name === name || 
+                            a.name.toLowerCase() === name.toLowerCase()
+                          );
+                          if (attr?.value) return attr.value;
+                        }
+                        return null;
+                      };
+                      
+                      // Get customer name from either format
+                      const firstName = findNoteAttribute(['First name', 'Name']) || 
+                                      (node.shipping_address && node.shipping_address.first_name);
+                      const lastName = findNoteAttribute(['Last name']) || 
+                                     (node.shipping_address && node.shipping_address.last_name);
+                      const customerName = [firstName, lastName].filter(Boolean).join(' ') || 'N/A';
+                      
+                      // Get phone numbers from either format
+                      const phone1 = findNoteAttribute(['Phone number', 'Phone', 'Phone 1']) || 
+                                   (node.shipping_address && node.shipping_address.phone) || 'N/A';
+                      
+                      const phone2 = findNoteAttribute(['Phone number 2', 'phone_2', 'secondary_phone', 'Phone 2']) || '-';
+                      
+                      // Extract wilaya (province) from city field
+                      // Get state/wilaya from either format
+                      let wilaya = findNoteAttribute(['Wilaya الولاية', 'Province (State)', 'city']) || 
+                                 (node.shipping_address && node.shipping_address.city) || '';
+                      
+                      // Handle format "05 - Batna باتنة"
+                      const cityRegex = /^(\d+)\s*-\s*([^-]+?)(?:\s+[\u0600-\u06FF]+)?$/;
+                      const cityMatch = wilaya.match(cityRegex);
+                      if (cityMatch) {
+                        wilaya = cityMatch[2].trim(); // Use the name part
                       }
-                    />
-                  ) : (
-                    <LazyVirtualizedDataTable
-                      columnContentTypes={['text', 'text', 'numeric', 'text', 'text', 'text', 'text', 'text', 'text', 'text']}
-                      headings={tableHeadings}
-                      rows={tableRows}
-                      footerContent={tableFooterContent}
-                    />
-                  )}
-
+                      
+                      // Get municipality/province from either format
+                      const municipality = findNoteAttribute(['Province', 'Province (State)']) || 
+                                         (node.shipping_address && node.shipping_address.province) || '-';
+                      
+                      const amount = parseFloat(node.totalPriceSet?.shopMoney?.amount || 0);
+                      const currency = node.totalPriceSet?.shopMoney?.currencyCode || 'DZD';
+                      
+                      // Calculate cost and profit
+                      let orderCost = 0;
+                      node.lineItems?.edges.forEach(({ node: item }) => {
+                        const quantity = item.quantity || 1;
+                        const costPerItem = parseFloat(item.variant?.inventoryItem?.unitCost?.amount || 0);
+                        orderCost += (costPerItem * quantity);
+                      });
+                      
+                      const profit = amount - orderCost;
+                      const margin = amount > 0 ? ((profit / amount) * 100) : 0;
+                      
+                      return [
+                        formatDate(node.createdAt),
+                        node.name,
+                        `${amount.toFixed(2)} ${currency}`,
+                        customerName,
+                        phone1,
+                        phone2,
+                        wilaya,
+                        municipality,
+                        <Badge tone={node.displayFinancialStatus === 'PAID' ? 'success' : 'warning'}>{node.displayFinancialStatus}</Badge>,
+                        node.shipment_status ? 
+                          <Badge tone="success">{node.shipment_status}</Badge> : 
+                          <Button size="slim" onClick={() => handleOrderSelect(node)}>
+                            {t('orders.createShipmentButton')}
+                          </Button>
+                      ];
+                    })}
+                    footerContent={
+                      <div style={{ padding: '16px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', fontWeight: 'bold', textAlign: 'center' }}>
+                        {`📊 ${t('orders.stats.totalOrders')}: ${filteredData.length} | ${t('orders.pagination.page')} ${safeCurrentPage} ${t('orders.pagination.of')} ${totalPages}`}
+                      </div>
+                    }
+                  />
                   {totalPages > 1 && (
                     <Box padding="400">
                       <InlineStack gap="400" align="center">
-                        <Button 
-                          onClick={() => handlePageChange(currentPage - 1)}
-                          disabled={currentPage <= 1}
-                        >
+                        <Button onClick={() => setCurrentPage(safeCurrentPage - 1)} disabled={safeCurrentPage <= 1}>
                           {t('orders.pagination.previous')}
                         </Button>
-                        <Text variant="bodyMd" as="span">
-                          {`${t('orders.pagination.page')} ${currentPage} ${t('orders.pagination.of')} ${totalPages}`}
-                        </Text>
-                        <Button 
-                          onClick={() => handlePageChange(currentPage + 1)}
-                          disabled={currentPage >= totalPages}
-                          onMouseEnter={preloadNextPage}
-                        >
+                        <Text variant="bodyMd" as="span">{`${t('orders.pagination.page')} ${safeCurrentPage} ${t('orders.pagination.of')} ${totalPages}`}</Text>
+                        <Button onClick={() => setCurrentPage(safeCurrentPage + 1)} disabled={safeCurrentPage >= totalPages}>
                           {t('orders.pagination.next')}
                         </Button>
-                        <Select 
-                          label=""
-                          labelHidden
-                          options={[
-                            { label: '10 per page', value: '10' },
-                            { label: '20 per page', value: '20' },
-                            { label: '50 per page', value: '50' },
-                          ]}
-                          value={pageSize.toString()}
-                          onChange={handlePageSizeChange}
-                        />
                       </InlineStack>
                     </Box>
                   )}
-                </Suspense>
+                </>
               )}
-              }
             </Card>
           </Layout.Section>
         </Layout>
 
-        {/* Render the modal only when it's needed - helps with initial load performance */}
-        {isModalOpen && (
-          <Modal
-            open={isModalOpen}
-            onClose={() => setIsModalOpen(false)}
-            title={t('orders.createShipment')}
-            primaryAction={{
-              content: t('orders.createShipmentButton'),
-              onAction: handleShipmentSubmit,
-              loading: fetcher.state === "submitting"
-            }}
-            secondaryActions={[
-              {
-                content: t('general.cancel'),
-                onAction: () => setIsModalOpen(false)
+        {console.log('Rendering Modal with state:', { isModalOpen, hasSelectedOrder: !!selectedOrder })}
+        <Modal
+          open={isModalOpen}
+          onClose={() => {
+            console.log('Modal closing');
+            setIsModalOpen(false);
+          }}
+          title={t('orders.createShipment')}
+          primaryAction={{
+            content: t('orders.createShipmentButton'),
+            onAction: handleShipmentSubmit,
+            loading: fetcher.state === "submitting"
+          }}
+          secondaryActions={[
+            {
+              content: t('general.cancel'),
+              onAction: () => {
+                console.log('Modal cancel clicked');
+                setIsModalOpen(false);
               }
-            ]}
-          >
-            <Modal.Section>
-              <FormLayout>
-                {/* Calculate cost summary information */}
-                {selectedOrder && (
-                  <Card>
-                    <Box padding="300" background="bg-surface-secondary">
-                      <BlockStack gap="300">
-                        <Text variant="headingMd" as="h3">{t('orders.stats.totalCost')}</Text>
-                        <BlockStack gap="200">
-                          {selectedOrder.lineItems?.edges.map(({ node }, index) => {
+            }
+          ]}
+        >
+          <Modal.Section>
+            <FormLayout>
+              {/* Calculate cost summary information */}
+              {selectedOrder && (
+                <Card>
+                  <Box padding="300" background="bg-surface-secondary">
+                    <BlockStack gap="300">
+                      <Text variant="headingMd" as="h3">{t('orders.stats.totalCost')}</Text>
+                      <BlockStack gap="200">
+                        {selectedOrder.lineItems?.edges.map(({ node }, index) => {
+                          const quantity = node.quantity || 1;
+                          const unitCost = parseFloat(node.variant?.inventoryItem?.unitCost?.amount || 0);
+                          const price = parseFloat(node.originalUnitPrice || 0);
+                          const itemTotalCost = unitCost * quantity;
+                          const itemTotalRevenue = price * quantity;
+                          const itemProfit = itemTotalRevenue - itemTotalCost;
+                          const itemMargin = price > 0 ? ((price - unitCost) / price * 100) : 0;
+                          const currency = node.originalTotalSet?.shopMoney?.currencyCode || 'DZD';
+                          
+                          return (
+                            <InlineStack key={index} align="space-between" blockAlign="center">
+                              <Text variant="bodyMd">{node.title} (x{quantity})</Text>
+                              <InlineStack gap="200">
+                                <Text variant="bodyMd" tone="subdued">{t('orders.stats.totalCost')}: {(unitCost * quantity).toFixed(2)} {currency}</Text>
+                                <Text variant="bodyMd" tone={itemProfit >= 0 ? "success" : "critical"}>{t('orders.stats.totalProfit')}: {itemProfit.toFixed(2)} {currency} ({itemMargin.toFixed(1)}%)</Text>
+                              </InlineStack>
+                            </InlineStack>
+                          );
+                        })}
+                        
+                        {/* Total summary */}
+                        {(() => {
+                          let totalCost = 0;
+                          let totalRevenue = parseFloat(shipmentForm.Total || 0);
+                          
+                          selectedOrder.lineItems?.edges.forEach(({ node }) => {
                             const quantity = node.quantity || 1;
                             const unitCost = parseFloat(node.variant?.inventoryItem?.unitCost?.amount || 0);
-                            const unitPriceSet = node.originalUnitPriceSet?.shopMoney?.amount;
-                            const price = parseFloat(unitPriceSet || 0);
-                            const itemTotalCost = unitCost * quantity;
-                            const itemTotalRevenue = price * quantity;
-                            const itemProfit = itemTotalRevenue - itemTotalCost;
-                            const itemMargin = price > 0 ? ((price - unitCost) / price * 100) : 0;
-                            const currency = node.originalTotalSet?.shopMoney?.currencyCode || 'DZD';
-                            
-                            return (
-                              <InlineStack 
-                                key={index}
-                                align="space-between"
-                                blockAlign="center"
-                              >
-                                <Text variant="bodyMd">{node.title} (x{quantity})</Text>
-                                <InlineStack gap="200">
-                                  <Text variant="bodyMd" tone="subdued">
-                                    {t('orders.stats.totalCost')}: {formatCurrency(itemTotalCost, false, currency)}
-                                  </Text>
-                                  <Text 
-                                    variant="bodyMd" 
-                                    tone={itemProfit >= 0 ? "success" : "critical"}
-                                  >
-                                    {t('orders.stats.totalProfit')}: {formatCurrency(itemProfit, false, currency)} ({formatPercentage(itemMargin)})
-                                  </Text>
-                                </InlineStack>
-                              </InlineStack>
-                            );
-                          })}
+                            totalCost += (unitCost * quantity);
+                          });
                           
-                          {/* Total summary */}
-                          {(() => {
-                            let totalCost = 0;
-                            let totalRevenue = parseFloat(shipmentForm.Total || 0);
-                            
-                            selectedOrder.lineItems?.edges.forEach(({ node }) => {
-                              const quantity = node.quantity || 1;
-                              const unitCost = parseFloat(node.variant?.inventoryItem?.unitCost?.amount || 0);
-                              totalCost += (unitCost * quantity);
+                          const profit = totalRevenue - totalCost;
+                          const margin = totalRevenue > 0 ? (profit / totalRevenue * 100) : 0;
+                          const currency = selectedOrder.totalPriceSet?.shopMoney?.currencyCode || 'DZD';
+                          
+                          return (
+                            <InlineStack align="space-between" blockAlign="center">
+                              <Text variant="headingSm" as="h4">{t('orders.totalSummary')}</Text>
+                              <InlineStack gap="200">
+                                <Text variant="headingSm" tone="subdued">{t('orders.cost')} {totalCost.toFixed(2)} {currency}</Text>
+                                <Text variant="headingSm" tone={profit >= 0 ? "success" : "critical"}>{t('orders.profit')} {profit.toFixed(2)} {currency} ({margin.toFixed(1)}%)</Text>
+                              </InlineStack>
+                            </InlineStack>
+                          );
+                        })()}
+                      </BlockStack>
+                    </BlockStack>
+                  </Box>
+                </Card>
+              )}
+              
+              <FormLayout.Group>
+                <TextField
+                  label={t('orders.customer')}
+                  value={shipmentForm.Client}
+                  onChange={(value) => setShipmentForm({...shipmentForm, Client: value})}
+                  autoComplete="off"
+                  requiredIndicator
+                />
+                <TextField
+                  label={t('orders.phone')}
+                  value={shipmentForm.MobileA}
+                  onChange={(value) => setShipmentForm({...shipmentForm, MobileA: value})}
+                  type="tel"
+                  autoComplete="off"
+                  requiredIndicator
+                />
+              </FormLayout.Group>
+              
+              <FormLayout.Group>
+                <TextField
+                  label={t('orders.secondaryPhone')}
+                  value={shipmentForm.MobileB}
+                  onChange={(value) => setShipmentForm({...shipmentForm, MobileB: value})}
+                  type="tel"
+                  autoComplete="off"
+                />
+                <TextField
+                  label={t('orders.total')}
+                  value={shipmentForm.Total}
+                  onChange={(value) => setShipmentForm({...shipmentForm, Total: value})}
+                  type="number"
+                  autoComplete="off"
+                  requiredIndicator
+                  prefix="DZD"
+                />
+              </FormLayout.Group>
+              
+              <FormLayout.Group>
+                <TextField
+                  label={t('orders.address')}
+                  value={shipmentForm.Adresse}
+                  onChange={(value) => setShipmentForm({...shipmentForm, Adresse: value})}
+                  autoComplete="off"
+                  multiline={3}
+                  requiredIndicator
+                />
+              </FormLayout.Group>
+              
+              <FormLayout.Group>
+                <Select
+                  label={t('orders.wilaya')}
+                  options={data.cities}
+                  value={shipmentForm.IDWilaya}
+                  onChange={(value) => {
+                      // Normalize the wilaya ID by removing leading zeros and converting to string
+                      const normalizedValue = value ? parseInt(value).toString() : "";
+                      
+                      // Find the selected city by value (ensuring comparison format matches)
+                      const selectedCity = data.cities.find(city => 
+                        parseInt(city.value).toString() === normalizedValue
+                      );
+                      
+                      // Get the corresponding communes for this wilaya
+                      const wilayaCode = normalizedValue.toString().padStart(2, '0');
+                      const availableCommunes = communesData.filter(commune => 
+                        commune.wilaya_code === wilayaCode
+                      );
+                      
+                      // Try to find a matching commune from the selected order if we have one
+                      let matchedCommune = "";
+                      if (selectedOrder && availableCommunes.length > 0) {
+                        const shippingAddress = selectedOrder.shipping_address || {};
+                        const noteAttributes = Array.isArray(selectedOrder.note_attributes) ? selectedOrder.note_attributes : [];
+                        
+                        // Helper to find attributes in note_attributes
+                        const findNoteAttribute = (names, defaultValue = "") => {
+                          if (!Array.isArray(names)) names = [names];
+                          for (const name of names) {
+                            const attribute = noteAttributes.find(attr => 
+                              attr.name.toLowerCase() === name.toLowerCase() ||
+                              attr.name.toLowerCase().replace(/[()]/g, '') === name.toLowerCase()
+                            );
+                            if (attribute && attribute.value) return attribute.value;
+                          }
+                          return defaultValue;
+                        };
+                        
+                        // Try to find commune from note attributes or shipping address
+                        const rawCommune = findNoteAttribute(['Commune', 'City'], 
+                          shippingAddress.province || shippingAddress.city || '');
+                        
+                        if (rawCommune) {
+                          // Split the commune name into words for matching
+                          const communeWords = rawCommune.toLowerCase().split(/\s+/).filter(word => word.length > 1);
+                          
+                          console.log("Looking for commune match:", {
+                            original: rawCommune,
+                            words: communeWords,
+                            availableCommunes: availableCommunes.map(c => c.commune_name_ascii)
+                          });
+                          
+                          // Try different matching strategies in order of precision
+                          let matchedCommuneObj = null;
+                          
+                          // 1. Try exact match
+                          matchedCommuneObj = availableCommunes.find(item =>
+                            item.commune_name_ascii.toLowerCase() === rawCommune.toLowerCase() ||
+                            item.commune_name.toLowerCase() === rawCommune.toLowerCase()
+                          );
+                          
+                          // 2. If no exact match, try scoring by word matches
+                          if (!matchedCommuneObj && communeWords.length > 0) {
+                            // Score communes by how many words from the original commune name they match
+                            const scoredCommunes = availableCommunes.map(item => {
+                              const itemNameLower = item.commune_name_ascii.toLowerCase();
+                              // Count how many words from the raw commune match this commune name
+                              const matchCount = communeWords.filter(word => 
+                                itemNameLower.includes(word)
+                              ).length;
+                              return { item, matchCount };
                             });
                             
-                            const profit = totalRevenue - totalCost;
-                            const margin = totalRevenue > 0 ? (profit / totalRevenue * 100) : 0;
-                            const currency = selectedOrder.totalPriceSet?.shopMoney?.currencyCode || 'DZD';
+                            // Sort by match count (descending)
+                            scoredCommunes.sort((a, b) => b.matchCount - a.matchCount);
                             
-                            return (
-                              <InlineStack 
-                                align="space-between"
-                                blockAlign="center"
-                              >
-                                <Text variant="headingSm" as="h4">{t('orders.totalSummary')}</Text>
-                                <InlineStack gap="200">
-                                  <Text variant="headingSm" tone="subdued">
-                                    {t('orders.cost')} {formatCurrency(totalCost, false, currency)}
-                                  </Text>
-                                  <Text 
-                                    variant="headingSm" 
-                                    tone={profit >= 0 ? "success" : "critical"}
-                                  >
-                                    {t('orders.profit')} {formatCurrency(profit, false, currency)} ({formatPercentage(margin)})
-                                  </Text>
-                                </InlineStack>
-                              </InlineStack>
-                            );
-                          })()}
-                        </BlockStack>
-                      </BlockStack>
-                    </Box>
-                  </Card>
-                )}
-                
-                <FormLayout.Group>
-                  <TextField
-                    label={t('orders.customer')}
-                    value={shipmentForm.Client}
-                    onChange={(value) => setShipmentForm({...shipmentForm, Client: value})}
-                    autoComplete="off"
-                    requiredIndicator
-                  />
-                  <TextField
-                    label={t('orders.phone')}
-                    value={shipmentForm.MobileA}
-                    onChange={(value) => setShipmentForm({...shipmentForm, MobileA: value})}
-                    type="tel"
-                    autoComplete="off"
-                    requiredIndicator
-                  />
-                </FormLayout.Group>
-                
-                <FormLayout.Group>
-                  <TextField
-                    label={t('orders.secondaryPhone')}
-                    value={shipmentForm.MobileB}
-                    onChange={(value) => setShipmentForm({...shipmentForm, MobileB: value})}
-                    type="tel"
-                    autoComplete="off"
-                  />
-                  <TextField
-                    label={t('orders.total')}
-                    value={shipmentForm.Total}
-                    onChange={(value) => setShipmentForm({...shipmentForm, Total: value})}
-                    type="number"
-                    autoComplete="off"
-                    requiredIndicator
-                    prefix="DZD"
-                  />
-                </FormLayout.Group>
-                
-                <FormLayout.Group>
-                  <TextField
-                    label={t('orders.address')}
-                    value={shipmentForm.Adresse}
-                    onChange={(value) => setShipmentForm({...shipmentForm, Adresse: value})}
-                    autoComplete="off"
-                    multiline={3}
-                    requiredIndicator
-                  />
-                </FormLayout.Group>
-                
-                <FormLayout.Group>
-                  <Select
-                    label={t('orders.state')}
-                    options={data.cities}
-                    value={shipmentForm.IDWilaya}
-                    onChange={(value) => {
-                      const selectedCity = data.cities.find(city => city.value === value);
+                            // Get the commune with the highest match count
+                            if (scoredCommunes.length > 0 && scoredCommunes[0].matchCount > 0) {
+                              matchedCommuneObj = scoredCommunes[0].item;
+                              console.log(`Found word match: ${matchedCommuneObj.commune_name_ascii} with ${scoredCommunes[0].matchCount} matching words`);
+                            }
+                          }
+                          
+                          if (matchedCommuneObj) {
+                            matchedCommune = matchedCommuneObj.commune_name_ascii || matchedCommuneObj.commune_name;
+                            console.log("Found matching commune:", matchedCommune);
+                          } else {
+                            console.log("No matching commune found among available communes");
+                          }
+                        }
+                      }
+                      
+                      // Update form with normalized ID, city label, and matched commune if found
                       setShipmentForm({
                         ...shipmentForm, 
-                        IDWilaya: value,
-                        Wilaya: selectedCity ? selectedCity.label : ""
+                        IDWilaya: normalizedValue, // Store normalized value without leading zeros
+                        Wilaya: selectedCity ? selectedCity.label : "",
+                        Commune: matchedCommune // Set matched commune or empty string if not found
                       });
-                    }}
-                    requiredIndicator
-                  />
-                  <Select
-                    label={t('orders.city')}
-                    value={shipmentForm.Commune}
-                    options={filteredCommunes.map(commune => ({
-                      label: commune.commune_name_ascii,
-                      value: commune.commune_name_ascii
-                    }))}
-                    onChange={(value) => setShipmentForm({...shipmentForm, Commune: value})}
-                    requiredIndicator
-                    disabled={!shipmentForm.IDWilaya || filteredCommunes.length === 0}
-                    placeholder={filteredCommunes.length === 0 ? t('orders.selectWilayaFirst') : t('orders.selectCommune')}
-                  />
-                </FormLayout.Group>
-                
-                <FormLayout.Group>
-                  <Select
-                    label={t('orders.deliveryType')}
-                    options={deliveryTypes}
-                    value={shipmentForm.TypeLivraison}
-                    onChange={(value) => setShipmentForm({...shipmentForm, TypeLivraison: value})}
-                  />
-                  <Select
-                    label={t('orders.packageType')}
-                    options={packageTypes}
-                    value={shipmentForm.TypeColis}
-                    onChange={(value) => setShipmentForm({...shipmentForm, TypeColis: value})}
-                  />
-                </FormLayout.Group>
-                
-                <FormLayout.Group>
-                  <TextField
-                    label={t('orders.productDescription')}
-                    value={shipmentForm.TProduit}
-                    onChange={(value) => setShipmentForm({...shipmentForm, TProduit: value})}
-                    autoComplete="off"
-                    requiredIndicator
-                  />
-                  <Select
-                    label={t('orders.confirmationStatus')}
-                    options={confirmedStatusOptions}
-                    value={shipmentForm.Confrimee}
-                    onChange={(value) => setShipmentForm({...shipmentForm, Confrimee: value})}
-                    requiredIndicator
-                  />
-                </FormLayout.Group>
-                
-                <TextField
-                  label={t('orders.notes')}
-                  value={shipmentForm.Note}
-                  onChange={(value) => setShipmentForm({...shipmentForm, Note: value})}
-                  autoComplete="off"
-                  multiline={2}
+                      
+                      console.log(`Wilaya changed to ${normalizedValue}, matched commune: ${matchedCommune}`);
+                  }}
+                  requiredIndicator
                 />
-              </FormLayout>
-            </Modal.Section>
-          </Modal>
-        )}
+                <Select
+                  label={t('orders.commune')}
+                  value={shipmentForm.Commune}
+                  options={filteredCommunes.map(commune => ({
+                    label: commune.commune_name_ascii,
+                    value: commune.commune_name_ascii
+                  }))}
+                  onChange={(value) => setShipmentForm({...shipmentForm, Commune: value})}
+                  requiredIndicator
+                  disabled={!shipmentForm.IDWilaya || filteredCommunes.length === 0}
+                  placeholder={filteredCommunes.length === 0 ? t('orders.selectWilayaFirst') : t('orders.selectCommune')}
+                  onFocus={() => {
+                    // If we have a commune value but it's not in the options list, try to find a match
+                    if (shipmentForm.Commune && filteredCommunes.length > 0) {
+                      // Check if the commune is already in the options
+                      const communeExists = filteredCommunes.some(
+                        item => item.commune_name_ascii === shipmentForm.Commune
+                      );
+                      
+                      if (!communeExists) {
+                        // Split the commune name into words for matching
+                        const communeWords = shipmentForm.Commune.toLowerCase().split(/\s+/).filter(word => word.length > 1);
+                        
+                        // Try different matching strategies
+                        let matchingCommune = null;
+                        
+                        // 1. Try exact match (although we already checked communeExists)
+                        matchingCommune = filteredCommunes.find(item =>
+                          item.commune_name_ascii.toLowerCase() === shipmentForm.Commune.toLowerCase() ||
+                          item.commune_name.toLowerCase() === shipmentForm.Commune.toLowerCase()
+                        );
+                        
+                        // 2. Try word matching
+                        if (!matchingCommune && communeWords.length > 0) {
+                          // Score communes by how many words from the original commune name they match
+                          const scoredCommunes = filteredCommunes.map(item => {
+                            const itemNameLower = item.commune_name_ascii.toLowerCase();
+                            // Count how many words from the commune match this commune name
+                            const matchCount = communeWords.filter(word => 
+                              itemNameLower.includes(word)
+                            ).length;
+                            return { item, matchCount };
+                          });
+                          
+                          // Sort by match count (descending)
+                          scoredCommunes.sort((a, b) => b.matchCount - a.matchCount);
+                          
+                          // Get the commune with the highest match count
+                          if (scoredCommunes.length > 0 && scoredCommunes[0].matchCount > 0) {
+                            matchingCommune = scoredCommunes[0].item;
+                            console.log(`Found word match on focus: ${matchingCommune.commune_name_ascii} with ${scoredCommunes[0].matchCount} matching words`);
+                          }
+                        }
+                        
+                        // Update the form with the matched commune name
+                        if (matchingCommune) {
+                          console.log(`Correcting commune name from "${shipmentForm.Commune}" to "${matchingCommune.commune_name_ascii}"`);
+                          setShipmentForm({...shipmentForm, Commune: matchingCommune.commune_name_ascii});
+                        }
+                      }
+                    }
+                  }}
+                />
+              </FormLayout.Group>
+              
+              <FormLayout.Group>
+                <Select
+                  label={t('orders.deliveryType')}
+                  options={deliveryTypes}
+                  value={shipmentForm.TypeLivraison}
+                  onChange={(value) => setShipmentForm({...shipmentForm, TypeLivraison: value})}
+                />
+                <Select
+                  label={t('orders.packageType')}
+                  options={packageTypes}
+                  value={shipmentForm.TypeColis}
+                  onChange={(value) => setShipmentForm({...shipmentForm, TypeColis: value})}
+                />
+              </FormLayout.Group>
+              
+              <FormLayout.Group>
+                <TextField
+                  label={t('orders.productDescription')}
+                  value={shipmentForm.TProduit}
+                  onChange={(value) => setShipmentForm({...shipmentForm, TProduit: value})}
+                  autoComplete="off"
+                  requiredIndicator
+                />
+                <Select
+                  label={t('orders.confirmationStatus.label')}
+                  options={confirmedStatusOptions}
+                  value={shipmentForm.Confrimee}
+                  onChange={(value) => setShipmentForm({...shipmentForm, Confrimee: value})}
+                  requiredIndicator
+                />
+              </FormLayout.Group>
+              
+              <TextField
+                label={t('orders.notes')}
+                value={shipmentForm.Note}
+                onChange={(value) => setShipmentForm({...shipmentForm, Note: value})}
+                autoComplete="off"
+                multiline={2}
+              />
+            </FormLayout>
+          </Modal.Section>
+        </Modal>
         {toastMarkup}
       </Page>
     </Frame>

@@ -9,6 +9,26 @@ import {
 import { LanguageProvider } from "./utils/i18n/LanguageContext.jsx";
 import { useEffect } from "react";
 
+// TawkToScript component to safely load chat script client-side only
+function TawkToScript() {
+  useEffect(() => {
+    // Only run on client side
+    const Tawk_API = (window.Tawk_API = window.Tawk_API || {});
+    const Tawk_LoadStart = new Date();
+
+    const s1 = document.createElement("script");
+    const s0 = document.getElementsByTagName("script")[0];
+
+    s1.async = true;
+    s1.src = "https://embed.tawk.to/684d648aa3ad3e1910ba0e14/1itn51fep";
+    s1.charset = "UTF-8";
+    s1.setAttribute("crossorigin", "*");
+    s0.parentNode.insertBefore(s1, s0);
+  }, []);
+
+  return null;
+}
+
 export const meta = () => {
   return [
     { title: "TrackProfit - Shopify Analytics and Order Tracking" },
@@ -64,23 +84,8 @@ function AppContent({ matches }) {
         <ScrollRestoration />
         <Scripts />
         {/* Tawk.to Chat Widget Script - Lazy load with defer */}
-        <script
-          type="text/javascript"
-          defer
-          dangerouslySetInnerHTML={{
-            __html: `
-              var Tawk_API=Tawk_API||{}, Tawk_LoadStart=new Date();
-              (function(){
-                var s1=document.createElement("script"),s0=document.getElementsByTagName("script")[0];
-                s1.async=true;
-                s1.src='https://embed.tawk.to/684d648aa3ad3e1910ba0e14/1itn51fep';
-                s1.charset='UTF-8';
-                s1.setAttribute('crossorigin','*');
-                s0.parentNode.insertBefore(s1,s0);
-              })();
-            `,
-          }}
-        />
+        {/* Tawk.to Chat Widget Script - Added with useEffect to avoid hydration mismatch */}
+        <TawkToScript />
       </body>
     </html>
   );

@@ -22,6 +22,7 @@ import {
   DatePicker,
 } from "@shopify/polaris";
 import { useLanguage } from "../utils/i18n/LanguageContext.jsx";
+import { formatCurrency, formatNumber, formatPercentage, formatDate as formatDateUtil } from "../utils/formatters";
 
 // CORRECTED ACTION FUNCTION
 export const action = async ({ request }) => {
@@ -338,6 +339,7 @@ export default function Products() {
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / rowsPerPage));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
   const currentPageData = filteredProducts.slice((safeCurrentPage - 1) * rowsPerPage, safeCurrentPage * rowsPerPage);
+  // Use our date formatter for consistency
   const formatDate = (date) => date.toLocaleDateString('fr-CA');
 
   useEffect(() => {
@@ -514,12 +516,12 @@ export default function Products() {
 
           <Layout.Section>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-              <StatCard title={t('products.totalProducts')} value={stats.totalProducts} icon="📦" color="success" />
-              <StatCard title={t('products.totalInventory')} value={stats.totalInventory} icon="🧺" color="info" />
-              <StatCard title={t('products.totalCost')} value={`${stats.totalCost} DZD`} icon="💸" color="warning" />
-              <StatCard title={t('products.totalProfit')} value={`${stats.totalProfit} DZD`} icon="💰" color="success" />
-              <StatCard title={t('products.avgProfit')} value={`${stats.avgProfit} DZD`} icon="💎" color="success" />
-              <StatCard title={t('products.avgMargin')} value={`${stats.avgMargin.toFixed(2)}%`} icon="📈" color="info" />
+              <StatCard title={t('products.totalProducts')} value={formatNumber(stats.totalProducts)} icon="📦" color="success" />
+              <StatCard title={t('products.totalInventory')} value={formatNumber(stats.totalInventory)} icon="🧺" color="info" />
+              <StatCard title={t('products.totalCost')} value={formatCurrency(stats.totalCost)} icon="💸" color="warning" />
+              <StatCard title={t('products.totalProfit')} value={formatCurrency(stats.totalProfit)} icon="💰" color="success" />
+              <StatCard title={t('products.avgProfit')} value={formatCurrency(stats.avgProfit)} icon="💎" color="success" />
+              <StatCard title={t('products.avgMargin')} value={formatPercentage(stats.avgMargin)} icon="📈" color="info" />
             </div>
           </Layout.Section>
 
@@ -562,14 +564,14 @@ export default function Products() {
                         node.title,
                         node.productType || t('products.table.uncategorized'),
                         <Badge tone={node.status === 'ACTIVE' ? 'success' : 'critical'}>{node.status}</Badge>,
-                        `${sellingPrice.toFixed(2)} ${currency}`,
+                        formatCurrency(sellingPrice, false, currency),
                         costPerItem > 0
-                          ? `${costPerItem.toFixed(2)} ${currency}`
+                          ? formatCurrency(costPerItem, false, currency)
                           : <Button size="slim" onClick={() => handleCostUpdateClick(node.id)} loading={isUpdating && selectedProduct?.id === node.id} disabled={isUpdating}>
                             {t('products.setCost')}
                           </Button>,
-                        <Text color={profit >= 0 ? "success" : "critical"}>{profit.toFixed(2)} ${currency}</Text>,
-                        <Text color={margin >= 0 ? "success" : "critical"}>{margin.toFixed(2)}%</Text>,
+                        <Text color={profit >= 0 ? "success" : "critical"}>{formatCurrency(profit, false, currency)}</Text>,
+                        <Text color={margin >= 0 ? "success" : "critical"}>{formatPercentage(margin)}</Text>,
                         node.totalInventory?.toString() || '0'
                       ];
                     })}

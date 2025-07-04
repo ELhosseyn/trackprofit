@@ -28,7 +28,7 @@ import {
 import { Suspense, lazy } from "react";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
-import { prisma } from "../db.server";
+import prisma from "../db.server";
 import { facebook } from "../services/facebook.server.js";
 import { 
   LazyChartComponents, 
@@ -81,14 +81,12 @@ const preloadChartJS = () => {
 };
 
 // --- Enhanced SparkLineChart Component with tooltips and hover effects ---
-const SparkLineChart = ({ data, trend, formatValue }) => {
-  const { t, language, isRTL } = useLanguage();
-  
+const SparkLineChart = ({ data, trend, formatValue, language, t, isRTL }) => {
   // Ensure Chart.js is loaded
   useEffect(() => {
     preloadChartJS();
   }, []);
-
+  
   // Skip rendering if no data or empty data
   if (!data || data.length === 0 || !data.some(d => d.value !== undefined && d.value !== null)) {
     return <div style={{ height: '50px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -315,10 +313,42 @@ export const loader = async ({ request }) => {
   let topSellingProduct = null;
   let mostProfitableProduct = null;
 
-  const [fbCredentials, allShipments] = await Promise.all([
+  // Fetch all necessary data in parallel for better performance
+  const [fbCredentials, allShipments, orderCOGSData, productCosts] = await Promise.all([
     prisma.FacebookCredential.findUnique({ where: { shop: session.shop } }),
-    prisma.Shipment.findMany({ where: { shop: session.shop, updatedAt: { gte: start, lte: end } }, select: { total: true, deliveryFee: true, cancelFee: true, status: true, totalCost: true, updatedAt: true } }),
+    prisma.Shipment.findMany({ 
+      where: { 
+        shop: session.shop, 
+        updatedAt: { gte: start, lte: end } 
+      },
+      select: { 
+        id: true,
+        total: true, 
+        deliveryFee: true, 
+        cancelFee: true, 
+        status: true, 
+        totalCost: true, 
+        updatedAt: true,
+        orderId: true 
+      }
+    }),
+    // Fetch order COGS data for the same period
+    prisma.OrderCOGS.findMany({
+      where: { 
+        shop: session.shop,
+        createdAt: { gte: start, lte: end }
+      },
+      include: {
+        items: true
+      }
+    }),
+    // Fetch product costs data
+    prisma.ProductCost.findMany({
+      where: { shop: session.shop }
+    })
   ]);
+
+  console.log(`Fetched ${allShipments.length} shipments, ${orderCOGSData.length} COGS orders, and ${productCosts.length} product costs`);
 
   const dailyData = {};
   const dateCursor = new Date(start);
@@ -328,11 +358,13 @@ export const loader = async ({ request }) => {
       cogs: 0, 
       shippingAndCancelFees: 0, 
       adCosts: 0,
-      shipmentCount: 0  // Add shipment count tracking
+      shipmentCount: 0,
+      orderCount: 0
     };
     dateCursor.setDate(dateCursor.getDate() + 1);
   }
 
+  // Process shipment data
   for (const shipment of allShipments) {
     const dateString = shipment.updatedAt.toISOString().split('T')[0];
     if (dailyData[dateString]) {
@@ -349,6 +381,74 @@ export const loader = async ({ request }) => {
     }
   }
 
+  // Process OrderCOGS data
+  for (const order of orderCOGSData) {
+    const dateString = order.createdAt.toISOString().split('T')[0];
+    if (dailyData[dateString]) {
+      dailyData[dateString].orderCount += 1;
+      
+      // If the order data already exists in the shipment data, don't double count
+      const hasMatchingShipment = allShipments.some(shipment => 
+        shipment.orderId === order.orderId && 
+        (shipment.status === "Livrée" || shipment.status === "En Préparation")
+      );
+      
+      if (!hasMatchingShipment) {
+        // If no matching shipment found, add this order's revenue and costs
+        dailyData[dateString].orderRevenue += parseFloat(order.totalRevenue || 0);
+        dailyData[dateString].cogs += parseFloat(order.totalCost || 0);
+      }
+    }
+  }
+
+  // Find top selling and most profitable products
+  if (orderCOGSData.length > 0) {
+    // Create a map to aggregate product sales and profits
+    const productSales = new Map();
+    const productProfits = new Map();
+    
+    for (const order of orderCOGSData) {
+      for (const item of order.items) {
+        // Track quantity sold per product
+        const currentSales = productSales.get(item.productId) || { 
+          id: item.productId, 
+          title: item.title,
+          quantity: 0,
+          revenue: 0
+        };
+        currentSales.quantity += item.quantity;
+        currentSales.revenue += item.totalRevenue;
+        productSales.set(item.productId, currentSales);
+        
+        // Track profit per product
+        const currentProfits = productProfits.get(item.productId) || {
+          id: item.productId,
+          title: item.title,
+          profit: 0,
+          revenue: 0
+        };
+        currentProfits.profit += item.profit;
+        currentProfits.revenue += item.totalRevenue;
+        productProfits.set(item.productId, currentProfits);
+      }
+    }
+    
+    // Convert maps to arrays and sort to find top products
+    const sortedBySales = Array.from(productSales.values())
+      .sort((a, b) => b.quantity - a.quantity);
+    
+    const sortedByProfit = Array.from(productProfits.values())
+      .sort((a, b) => b.profit - a.profit);
+    
+    if (sortedBySales.length > 0) {
+      topSellingProduct = sortedBySales[0];
+    }
+    
+    if (sortedByProfit.length > 0) {
+      mostProfitableProduct = sortedByProfit[0];
+    }
+  }
+  
   if (fbCredentials?.accessToken) {
     try {
       const adAccounts = await facebook.getAdAccounts(fbCredentials.accessToken);
@@ -420,7 +520,8 @@ export const loader = async ({ request }) => {
       date, 
       ...day, 
       totalProfit: dailyProfit,
-      shipmentCount: day.shipmentCount // Add shipment count to daily stats
+      shipmentCount: day.shipmentCount,
+      orderCount: day.orderCount
     });
     stats.orderRevenue += day.orderRevenue;
     stats.cogs += day.cogs;
@@ -428,7 +529,7 @@ export const loader = async ({ request }) => {
   });
   
   const totalDeliveryFees = allShipments.reduce((sum, s) => 
-    sum + (s.status === "Livrée" || s.status === "En Préparation" ? parseFloat(s.deliveryFee || 0) : 0), 0);
+    sum + ((s.status === "Livrée" || s.status === "En Préparation") ? parseFloat(s.deliveryFee || 0) : 0), 0);
   
   const totalCancelFees = allShipments.reduce((sum, s) => 
     sum + (s.status?.includes("Retour") || s.status === "Annulé" ? parseFloat(s.cancelFee || 0) : 0), 0);
@@ -443,7 +544,7 @@ export const loader = async ({ request }) => {
   stats.effectiveROAS = (stats.adCosts > 0 && stats.orderRevenue > 0) ? Number(((stats.adRevenue - (stats.adRevenue / stats.orderRevenue * stats.cogs)) / stats.adCosts).toFixed(2)) : 0;
   
   const diagnostics = {
-    ordersWithCost: allShipments.filter(s => s.totalCost).length,
+    ordersWithCost: orderCOGSData.length,
     totalCogsValue: stats.cogs,
     shipmentsFound: allShipments.length,
     shipmentsWithCostData: allShipments.filter(s => s.totalCost).length,
@@ -472,23 +573,34 @@ export default function Index() {
   // Create date presets with translated labels
   const DATE_PRESETS = useMemo(() => {
     return DATE_PRESETS_CONFIG.map(preset => ({
-      ...preset,
+      value: preset.value,
       label: t(preset.translationKey)
     }));
   }, [t]);
   
   // Format helpers using the current language
-  const formatCurrency = useCallback((amount, showDecimals = false, currency = "DZD") => {
-    const currencyLabel = language === 'en' ? currency : t(`general.currency`);
-    return amount === undefined || amount === null
-      ? "-"
-      : new Intl.NumberFormat(language === 'ar' ? "ar-DZ" : "en-US", { 
-          style: "currency", 
-          currency: currency, 
-          minimumFractionDigits: showDecimals ? 2 : 0, 
-          maximumFractionDigits: showDecimals ? 2 : 0 
-        }).format(amount || 0);
-  }, [language, t]);
+  const formatCurrency = useCallback((amount, isNegative = false, currency = "DZD") => {
+    if (amount === undefined || amount === null) return "-";
+    
+    const value = Math.abs(Number(amount));
+    const sign = isNegative ? '-' : '';
+    
+    // Use consistent formatting with formatters.js
+    const formattedValue = new Intl.NumberFormat('ar-DZ', {
+      style: 'currency',
+      currency: currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(value);
+    
+    // Ensure currency symbol is correctly applied
+    if (currency === 'DZD') {
+      // Replace any potential incorrect currency symbol with "DZD"
+      return `${sign}${formattedValue.replace(/[€$]/g, '')}`;
+    }
+    
+    return `${sign}${formattedValue}`;
+  }, []);
 
   const formatNumber = useCallback((amount) => {
     return new Intl.NumberFormat(language === 'ar' ? "ar-DZ" : "en-US").format(amount || 0);
@@ -608,10 +720,10 @@ export default function Index() {
       error={toastMessage.includes("خطأ")}
     />
   ) : null;
-  const hasData = diagnostics.shipmentsFound > 0 || !!currentFacebook.selectedAccount;
+  const hasData = true; // Always show dashboard
 
   const statCardsData = useMemo(() => [
-    { title: t('stats.netProfit'), value: formatCurrency(currentStats.totalProfit), trend: currentStats.totalProfit >= 0 ? "positive" : "negative", chartData: currentStats.dailyStats.map(d => ({ date: d.date, value: d.totalProfit })) },
+    { title: t('stats.netProfit'), value: formatCurrency(currentStats.totalProfit), trend: currentStats.totalProfit >= 0 ? "positive" : "negative", chartData: currentStats.dailyStats.map(d => ({ date: d.date, value: d.totalProfit })), subtitle: currentFacebook.currency !== 'DZD' ? `${formatCurrency(currentStats.totalProfit / parseFloat(exchangeRate), currentStats.totalProfit < 0, currentFacebook.currency)} ${currentFacebook.currency}` : null },
     { title: t('stats.totalSales'), value: formatCurrency(currentStats.orderRevenue), trend: "positive", chartData: currentStats.dailyStats.map(d => ({ date: d.date, value: d.orderRevenue })) },
     { title: t('stats.adCosts'), value: formatCurrency(currentStats.adCosts, true), trend: "negative", chartData: currentStats.dailyStats.map(d => ({ date: d.date, value: d.adCosts })), subtitle: currentFacebook.currency !== 'DZD' ? `${formatCurrency(currentStats.adCosts / parseFloat(exchangeRate), true, currentFacebook.currency)} ${currentFacebook.currency}` : null },
     { title: t('stats.shippingCancelFees'), value: formatCurrency(currentStats.shippingAndCancelFees, true), trend: "negative", chartData: currentStats.dailyStats.map(d => ({ date: d.date, value: d.shippingAndCancelFees })) },
@@ -744,19 +856,9 @@ export default function Index() {
                 </BlockStack>
               </Card>
             </Layout.Section>
-          ) : !hasData ? (
-            <Layout.Section>
-              <EmptyState
-                heading={t('dashboard.noDataTitle')}
-                action={{ content: t('dashboard.addShipments'), url: '/app/shipments' }}
-                secondaryAction={{ content: t('dashboard.connectFacebook'), onAction: scrollToFacebookDropdown }}
-                image="https://cdn.shopify.com/s/files/1/0262/4074/files/emptystate-files.png"
-              >
-                <p>{t('dashboard.noDataDesc')}</p>
-              </EmptyState>
-            </Layout.Section>
           ) : (
             <>
+              {/* Removed "no data" banner since you have data from Facebook and shipments */}
               <Layout.Section>
                 <InlineGrid columns={{ xs: 1, sm: 2, lg: 3 }} gap="400">
                   {statCardsData.map((stat, index) => (
@@ -771,6 +873,9 @@ export default function Index() {
                           data={stat.chartData} 
                           trend={stat.trend} 
                           formatValue={(value) => stat.title.includes("إجمالي الشحنات") ? formatNumber(value) : formatCurrency(value, true)}
+                          language={language}
+                          t={t}
+                          isRTL={isRTL}
                         />
                       </BlockStack>
                     </Card>

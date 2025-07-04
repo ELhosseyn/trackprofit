@@ -10,13 +10,22 @@ export const formatCurrency = (amount, isNegative = false, currency = 'DZD') => 
   
   const value = Math.abs(Number(amount));
   const sign = isNegative ? '-' : '';
-
-  return `${sign}${value.toLocaleString('fr-DZ', {
+  
+  // Use the same approach for all components to ensure consistency
+  const formattedValue = new Intl.NumberFormat('ar-DZ', {
     style: 'currency',
     currency: currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
-  })}`;
+  }).format(value);
+  
+  // Ensure currency symbol is correctly applied based on the currency code
+  if (currency === 'DZD') {
+    // Replace any potential incorrect currency symbol with "DZD"
+    return `${sign}${formattedValue.replace(/[€$]/g, '')}`;
+  }
+  
+  return `${sign}${formattedValue}`;
 };
 
 /**
