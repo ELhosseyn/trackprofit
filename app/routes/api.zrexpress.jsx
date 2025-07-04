@@ -10,17 +10,21 @@ export async function action({ request }) {
     const formData = await request.formData();
     const action = formData.get('action');
 
-    console.log('API action:', action);
-    console.log('Shop:', session.shop);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('API action:', action);
+      console.log('Shop:', session.shop);
+    }
 
     switch (action) {
       case 'saveCredentials': {
         const token = formData.get('token');
         const key = formData.get('key');
 
-        console.log('Saving credentials for shop:', session.shop);
-        console.log('Token length:', token?.length);
-        console.log('Key length:', key?.length);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('Saving credentials for shop:', session.shop);
+          console.log('Token length:', token?.length);
+          console.log('Key length:', key?.length);
+        }
 
         if (!token || !key) {
           console.error('Missing token or key');

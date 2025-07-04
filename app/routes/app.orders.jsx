@@ -1183,7 +1183,7 @@ export default function Orders() {
           </Layout.Section>
         </Layout>
 
-        {console.log('Rendering Modal with state:', { isModalOpen, hasSelectedOrder: !!selectedOrder })}
+        {/* Debug info removed for production */}
         <Modal
           open={isModalOpen}
           onClose={() => {

@@ -18,20 +18,26 @@ export const action = async ({ request }) => {
       case "products/update":
       case "products/delete":
         // Handle product updates
-        console.log(`Product ${topic} webhook received from ${shop}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`Product ${topic} webhook received from ${shop}`);
+        }
         break;
 
       case "orders/create":
       case "orders/updated":
       case "orders/cancelled":
         // Handle order updates
-        console.log(`Order ${topic} webhook received from ${shop}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`Order ${topic} webhook received from ${shop}`);
+        }
         break;
 
       case "inventory_items/update":
       case "inventory_levels/update":
         // Handle inventory updates
-        console.log(`Inventory ${topic} webhook received from ${shop}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`Inventory ${topic} webhook received from ${shop}`);
+        }
         break;
 
       case "APP_UNINSTALLED":

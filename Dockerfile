@@ -8,6 +8,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV DEBUG=false
 ENV DEBUG=false
+ENV DEBUG=false
 
 COPY package.json package-lock.json* ./
 
