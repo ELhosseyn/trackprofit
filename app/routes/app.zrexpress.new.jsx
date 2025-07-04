@@ -29,29 +29,26 @@ export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   
   try {
-    console.log('Checking ZRExpress credentials for shop:', session.shop);
-    
+
     const credentials = await prisma.zrexpressCredential.findUnique({
       where: { shop: session.shop }
     });
 
-    console.log('Found credentials:', credentials ? 'Yes' : 'No');
-    
     let isConnected = false;
     let connectionError = null;
     
     if (credentials) {
       try {
-        console.log('Testing connection with ZRExpress...');
+
         await zrexpress.validateCredentials(credentials.token, credentials.key);
         isConnected = true;
-        console.log('Connection successful');
+
       } catch (error) {
         console.error('Connection test failed:', error);
         connectionError = error.message;
       }
     } else {
-      console.log('No credentials found for shop');
+
     }
 
     return json({
@@ -126,7 +123,6 @@ export default function ZRExpress() {
       });
 
       const data = await response.json();
-      console.log('Save credentials response:', data);
 
       if (!data.success) {
         throw new Error(data.error || 'فشل في حفظ بيانات الاعتماد');

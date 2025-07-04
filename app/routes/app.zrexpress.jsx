@@ -676,8 +676,7 @@ export default function ZRExpressManagement() {
     
     // Update filtered data in state if needed
     // For now we're just logging the filtered count
-    console.log(`Filtered ${filtered.length} of ${shippingData.length} shipments`);
-    
+
     // You can update state here if you need to display filtered data
     // setFilteredShippingData(filtered);
   }, [shippingData]);
@@ -794,7 +793,7 @@ export default function ZRExpressManagement() {
         if (communesData.length > 0) return;
         
         // Load communes data
-        console.log("Loading communes data...");
+
         const response = await fetch('/data/communes.json');
         if (!response.ok) {
           throw new Error(`Failed to load communes: ${response.status}`);
@@ -931,7 +930,7 @@ export default function ZRExpressManagement() {
     // If there are validation errors, display them and don't submit
     if (Object.keys(errors).length > 0) {
       // You can set these errors to state if you have error display UI
-      console.log('Validation errors:', errors);
+
       return;
     }
     
@@ -949,8 +948,7 @@ export default function ZRExpressManagement() {
   }, [newShipment, t, submit]);
 
   const handleCityChange = useCallback((value) => {
-    console.log("Wilaya changed to:", value);
-    
+
     // Reset commune when wilaya changes
     setNewShipment(prev => ({ 
       ...prev, 
@@ -962,7 +960,7 @@ export default function ZRExpressManagement() {
     if (communesData.length > 0 && value) {
       const wilayaCode = value.toString().padStart(2, '0');
       const communes = communesData.filter(c => c.wilaya_code === wilayaCode);
-      console.log(`Found ${communes.length} communes for wilaya ${wilayaCode}`);
+
     }
   }, [communesData]);
 

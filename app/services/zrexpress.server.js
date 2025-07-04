@@ -8,7 +8,6 @@ export class ZRExpressService {
 
   async validateCredentials(token, key) {
     try {
-      console.log('Validating ZRExpress credentials...');
 
       // Input validation
       if (!token || typeof token !== 'string' || token.trim().length === 0) {
@@ -30,8 +29,6 @@ export class ZRExpressService {
         body: JSON.stringify({})
       });
 
-      console.log('ZRExpress API response status:', response.status);
-
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Validation error response:', errorText);
@@ -48,8 +45,7 @@ export class ZRExpressService {
 
       // Try to parse the response to ensure it's valid
       const data = await response.json();
-      console.log('ZRExpress API response data:', JSON.stringify(data).substring(0, 200) + '...');
-      
+
       if (!Array.isArray(data)) {
         throw new Error('استجابة غير صالحة من الخادم');
       }
@@ -70,8 +66,6 @@ export class ZRExpressService {
       if (!session || !session.shop) {
         throw new Error('Shop information is required');
       }
-      
-      console.log('addColis received data:', JSON.stringify(colisData, null, 2));
 
       // Ensure the data matches the API format exactly
       const formattedData = {
@@ -94,8 +88,6 @@ export class ZRExpressService {
         }]
       };
 
-      console.log('Sending to ZRExpress:', JSON.stringify(formattedData, null, 2));
-
       const response = await fetch(`${this.baseUrl}/add_colis`, {
         method: 'POST',
         headers: {
@@ -108,7 +100,6 @@ export class ZRExpressService {
       });
 
       const responseText = await response.text();
-      console.log('ZRExpress Response:', responseText);
 
       if (!response.ok) {
         try {
@@ -135,15 +126,15 @@ export class ZRExpressService {
             const wilayaInfo = tarificationData.find(item => item.IDWilaya.toString() === formattedData.Colis[0].IDWilaya);
             if (wilayaInfo) {
               wilayaName = wilayaInfo.Wilaya;
-              console.log(`Found wilaya name for ID ${formattedData.Colis[0].IDWilaya}: ${wilayaName}`);
+
             } else {
-              console.log(`Wilaya with ID ${formattedData.Colis[0].IDWilaya} not found in tarification data`);
+
             }
           } catch (error) {
             console.error('Error fetching wilaya name:', error);
           }
         } else {
-          console.log(`Using provided wilaya name: ${wilayaName}`);
+
         }
 
         // Prepare shipment data for database
@@ -172,22 +163,15 @@ export class ZRExpressService {
         // Include orderId if provided
         if (colisData.orderId) {
           shipmentData.orderId = colisData.orderId;
-          console.log('Including Shopify orderId in shipment record:', colisData.orderId);
+
         }
         
         // Include cost information if provided
-        console.log('Cost data received:', {
-          totalCost: colisData.totalCost,
-          totalRevenue: colisData.totalRevenue,
-          totalProfit: colisData.totalProfit,
-          deliveryFee: colisData.deliveryFee,
-          cancelFee: colisData.cancelFee
-        });
-        
+
         // Default to 0 if values are not provided or parsing fails
         try {
           shipmentData.totalCost = colisData.totalCost ? parseFloat(colisData.totalCost) : 0;
-          console.log('Set totalCost to:', shipmentData.totalCost);
+
         } catch (error) {
           console.error('Error parsing totalCost:', error);
           shipmentData.totalCost = 0;
@@ -195,7 +179,7 @@ export class ZRExpressService {
         
         try {
           shipmentData.totalRevenue = colisData.totalRevenue ? parseFloat(colisData.totalRevenue) : 0;
-          console.log('Set totalRevenue to:', shipmentData.totalRevenue);
+
         } catch (error) {
           console.error('Error parsing totalRevenue:', error);
           shipmentData.totalRevenue = 0;
@@ -203,7 +187,7 @@ export class ZRExpressService {
         
         try {
           shipmentData.profit = colisData.totalProfit ? parseFloat(colisData.totalProfit) : 0;
-          console.log('Set profit to:', shipmentData.profit);
+
         } catch (error) {
           console.error('Error parsing totalProfit:', error);
           shipmentData.profit = 0;
@@ -212,7 +196,7 @@ export class ZRExpressService {
         // Add delivery fee and cancel fee
         try {
           shipmentData.deliveryFee = colisData.deliveryFee ? parseFloat(colisData.deliveryFee) : 0;
-          console.log('Set deliveryFee to:', shipmentData.deliveryFee);
+
         } catch (error) {
           console.error('Error parsing deliveryFee:', error);
           shipmentData.deliveryFee = 0;
@@ -220,7 +204,7 @@ export class ZRExpressService {
         
         try {
           shipmentData.cancelFee = colisData.cancelFee ? parseFloat(colisData.cancelFee) : 0;
-          console.log('Set cancelFee to:', shipmentData.cancelFee);
+
         } catch (error) {
           console.error('Error parsing cancelFee:', error);
           shipmentData.cancelFee = 0;
@@ -230,8 +214,6 @@ export class ZRExpressService {
         const savedShipment = await this.prisma.shipment.create({
           data: shipmentData
         });
-        
-        console.log('Shipment saved successfully:', savedShipment.id);
 
         return { success: true, data: result, shipment: savedShipment };
       } catch (e) {
@@ -254,8 +236,10 @@ export class ZRExpressService {
         throw new Error('Shop information is required');
       }
 
-      console.log('Getting shipment statuses for shop:', shop);
-      console.log('Date range:', dateRange);
+      if (process.env.NODE_ENV !== 'production') {
+
+
+      }
 
       // First, get all shipments from database if no tracking numbers provided
       let dbShipments = [];
@@ -270,8 +254,6 @@ export class ZRExpressService {
             }
           } : {})
         };
-
-        console.log('Database query where clause:', whereClause);
 
         dbShipments = await this.prisma.shipment.findMany({
           where: whereClause,
@@ -299,7 +281,9 @@ export class ZRExpressService {
           } : {})
         };
 
-        console.log('Database query where clause for tracking numbers:', whereClause);
+        if (process.env.NODE_ENV !== 'production') {
+
+        }
 
         dbShipments = await this.prisma.shipment.findMany({
           where: whereClause,
@@ -312,7 +296,9 @@ export class ZRExpressService {
         Colis: trackingNumbers.map(tracking => ({ Tracking: tracking }))
       };
 
-      console.log('Sending status request to ZRExpress:', JSON.stringify(requestBody, null, 2));
+      if (process.env.NODE_ENV !== 'production') {
+
+      }
 
       // Make the API call to get statuses
       const response = await fetch(`${this.baseUrl}/lire`, {
@@ -340,7 +326,9 @@ export class ZRExpressService {
       }
 
       const statusResponse = await response.json();
-      console.log('ZRExpress status response:', JSON.stringify(statusResponse, null, 2));
+      if (process.env.NODE_ENV !== 'production') {
+
+      }
 
       // Process the response and update database
       const updatedShipments = [];
@@ -396,14 +384,6 @@ export class ZRExpressService {
           }
 
           // Add debug logging for dates
-          console.log('Shipment dates:', {
-            tracking: apiShipment.Tracking,
-            createdAt: createdAt,
-            updatedAt: shipmentData.updatedAt,
-            apiDateH_Action: apiShipment.DateH_Action,
-            apiDate_Creation: apiShipment.Date_Creation,
-            apiDateA: apiShipment.DateA
-          });
 
           if (shipment) {
             // Update existing shipment

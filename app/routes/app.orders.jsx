@@ -107,8 +107,6 @@ export const loader = async ({ request }) => {
         where: { shop: session.shop }
       });
 
-      console.log('ZRExpress Credentials:', credentials ? 'Found' : 'Not Found');
-
       // Get cities from ZRExpress if we have credentials
       if (credentials) {
         const zrexpress = new ZRExpressService();
@@ -126,7 +124,6 @@ export const loader = async ({ request }) => {
             }))
             .sort((a, b) => parseInt(a.value) - parseInt(b.value));
 
-          console.log('Cities loaded:', cities.length);
         } catch (zrError) {
           console.error('ZRExpress Tarification Error:', zrError);
         }
@@ -136,7 +133,7 @@ export const loader = async ({ request }) => {
     }
 
     // Get ALL orders through GraphQL with pagination
-    console.log('Fetching all orders via GraphQL...');
+
     let allOrders = [];
     let hasNextPage = true;
     let cursor = null;
@@ -218,15 +215,11 @@ export const loader = async ({ request }) => {
       
       hasNextPage = orders.pageInfo.hasNextPage;
       cursor = orders.pageInfo.endCursor;
-      
-      console.log(`Fetched ${orders.edges.length} orders, total: ${allOrders.length}`);
-      
+
       if (hasNextPage) {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
-
-    console.log(`All orders fetched: ${allOrders.length} orders, getting details...`);
 
     // Get all shipments for these orders
     const shipments = await prisma.shipment.findMany({
@@ -254,8 +247,7 @@ export const loader = async ({ request }) => {
         try {
           const orderId = node.id.split('/').pop();
           const shipment = shipmentsMap[orderId];
-          console.log(`Fetching details for order ${orderId}...`);
-          
+
           const orderResponse = await fetch(
             `https://${session.shop}/admin/api/2024-01/orders/${orderId}.json`,
             {
@@ -287,8 +279,6 @@ export const loader = async ({ request }) => {
       })
     );
 
-    console.log('All order details fetched successfully');
-
     return json({
       orders: {
         edges: ordersWithDetails.map(order => ({ node: order }))
@@ -318,8 +308,6 @@ export const action = async ({ request }) => {
   const formData = await request.formData();
   const { _action, ...shipmentValues } = Object.fromEntries(formData);
 
-  console.log('Action triggered:', _action);
-  console.log('Shipment values received:', shipmentValues);
 
   if (_action === 'createShipment') {
     try {
@@ -346,8 +334,6 @@ export const action = async ({ request }) => {
         totalRevenue: totalRevenue.toString(),
         totalProfit: totalProfit.toString()
       };
-      
-      console.log('Enhanced shipment values with COGS:', enhancedShipmentValues);
 
       const credentials = await prisma.ZRExpressCredential.findUnique({
         where: { shop: session.shop },
@@ -359,8 +345,7 @@ export const action = async ({ request }) => {
       }
 
       const zrexpress = new ZRExpressService();
-      console.log('Calling ZRExpress addColis with token, key, and values');
-      
+
       // Create ZRExpress shipment
       const result = await zrexpress.addColis(
         credentials.token,
@@ -369,15 +354,11 @@ export const action = async ({ request }) => {
         session
       );
 
-      console.log('ZRExpress addColis result:', result);
-
       if (!result.success) {
         console.error('Failed to create shipment:', result.error);
         return json({ success: false, error: result.error || t('errors.shipmentCreation', { error: 'Unknown error' }) }, { status: 500 });
       }
-      
-      console.log('Shipment created successfully with ID:', result.shipment?.id);
-      
+
       if (result.shipment?.id && shipmentValues.orderId) {
         // Save order COGS information separately if we have a Shopify order ID
         try {
@@ -432,8 +413,7 @@ export const action = async ({ request }) => {
               } : {})
             }
           });
-          
-          console.log(`COGS information saved for order ${orderId}`);
+
         } catch (cogsError) {
           console.error('Failed to save COGS information:', cogsError);
           // We don't want to fail the whole request if just the COGS save fails
@@ -488,23 +468,11 @@ export default function Orders() {
     deliveryFee: "0",
     cancelFee: "0"
   });
-  
-  // Debug state changes
+
   useEffect(() => {
-    if (selectedOrder || isModalOpen) {
-      console.log("State changed:", {
-        isModalOpen,
-        hasSelectedOrder: !!selectedOrder,
-        hasShipmentForm: !!shipmentForm
-      });
+    if (process.env.NODE_ENV !== 'production') {
+
     }
-  }, [isModalOpen, selectedOrder, shipmentForm]);
-  useEffect(() => {
-    console.log('State changed:', {
-      isModalOpen,
-      selectedOrder: selectedOrder?.id,
-      shipmentForm: !!shipmentForm
-    });
   }, [isModalOpen, selectedOrder, shipmentForm]);
 
   const isArabic = language === 'ar';
@@ -561,18 +529,9 @@ export default function Orders() {
           const itemNameLower = item.commune_name_ascii.toLowerCase();
           return communeWords.some(word => itemNameLower.includes(word));
         });
-        
-        console.log(`Filtered communes for wilaya ${shipmentForm.IDWilaya} (${wilayaCode}):`, 
-          communes.length, 
-          'Selected commune:', shipmentForm.Commune,
-          'Search words:', communeWords,
-          'Has exact match:', hasExactMatch,
-          'Has word match:', hasWordMatch
-        );
+
       } else {
-        console.log(`Filtered communes for wilaya ${shipmentForm.IDWilaya} (${wilayaCode}):`, 
-          communes.length, 
-          'Selected commune:', shipmentForm.Commune);
+
       }
       
       return communes;
@@ -687,8 +646,7 @@ export default function Orders() {
 
   const handleOrderSelect = useCallback((order) => {
     setSelectedOrder(order);
-    console.log("Selected order:", order);
-    
+
     // Pre-populate form with order data and ensure required fields exist
     const shippingAddress = order.shipping_address || {};
     const noteAttributes = Array.isArray(order.note_attributes) ? order.note_attributes : [];
@@ -815,18 +773,10 @@ export default function Orders() {
       item?.wilaya_code === paddedWilayaId
     ) || [];
 
-    console.log(`Available communes for wilaya ${wilayaId} (${paddedWilayaId}):`, availableCommunes.length);
-
     if (commune && availableCommunes.length > 0) {
       // Split the commune name into words for matching
       const communeWords = commune.toLowerCase().split(/\s+/).filter(word => word.length > 1);
-      
-      console.log("Looking for commune match in order init:", {
-        original: commune,
-        words: communeWords,
-        availableCommunes: availableCommunes.map(c => c.commune_name_ascii)
-      });
-      
+
       // Try different matching strategies in order of precision
       let matchedCommune = null;
       
@@ -854,15 +804,15 @@ export default function Orders() {
         // Get the commune with the highest match count
         if (scoredCommunes.length > 0 && scoredCommunes[0].matchCount > 0) {
           matchedCommune = scoredCommunes[0].item;
-          console.log(`Found word match in order init: ${matchedCommune.commune_name_ascii} with ${scoredCommunes[0].matchCount} matching words`);
+
         }
       }
       
       if (matchedCommune) {
         commune = matchedCommune.commune_name_ascii || matchedCommune.commune_name;
-        console.log("Found matching commune in order init:", commune);
+
       } else {
-        console.log("No matching commune found among available communes in order init");
+
       }
     }
     
@@ -905,14 +855,8 @@ export default function Orders() {
       deliveryFee: "0",
       cancelFee: "0"
     };
-    
-    console.log("Updated shipment form:", updatedForm);
-    console.log("Wilaya ID format:", {
-      raw: wilayaId,
-      padded: wilayaId?.toString().padStart(2, '0'),
-      defaultValue: defaultWilaya.value
-    });
-    
+
+
     // Update state in a batch to ensure consistent render
     const batch = () => {
       setShipmentForm(updatedForm);
@@ -921,8 +865,7 @@ export default function Orders() {
     
     // Execute state updates
     batch();
-    
-    console.log("State updates requested");
+
   }, [shipmentForm, defaultWilaya, communesData]);
 
   const handleShipmentSubmit = useCallback(async (e) => {
@@ -976,20 +919,7 @@ export default function Orders() {
     formData.append("totalProfit", profit.toString());
     formData.append("lineItems", JSON.stringify(lineItems));
     formData.append("_action", "createShipment");
-    
-    console.log("Creating shipment with COGS data:", {
-      totalCost,
-      totalRevenue,
-      profit,
-      items: lineItems.map(item => ({
-        title: item.title,
-        quantity: item.quantity,
-        unitCost: item.unitCost,
-        price: item.price,
-        profit: item.profit
-      }))
-    });
-    
+
     fetcher.submit(formData, { method: "post" });
     setIsModalOpen(false);
   }, [fetcher, shipmentForm, selectedOrder]);
@@ -1257,7 +1187,7 @@ export default function Orders() {
         <Modal
           open={isModalOpen}
           onClose={() => {
-            console.log('Modal closing');
+
             setIsModalOpen(false);
           }}
           title={t('orders.createShipment')}
@@ -1270,7 +1200,7 @@ export default function Orders() {
             {
               content: t('general.cancel'),
               onAction: () => {
-                console.log('Modal cancel clicked');
+
                 setIsModalOpen(false);
               }
             }
@@ -1431,13 +1361,7 @@ export default function Orders() {
                         if (rawCommune) {
                           // Split the commune name into words for matching
                           const communeWords = rawCommune.toLowerCase().split(/\s+/).filter(word => word.length > 1);
-                          
-                          console.log("Looking for commune match:", {
-                            original: rawCommune,
-                            words: communeWords,
-                            availableCommunes: availableCommunes.map(c => c.commune_name_ascii)
-                          });
-                          
+
                           // Try different matching strategies in order of precision
                           let matchedCommuneObj = null;
                           
@@ -1465,15 +1389,15 @@ export default function Orders() {
                             // Get the commune with the highest match count
                             if (scoredCommunes.length > 0 && scoredCommunes[0].matchCount > 0) {
                               matchedCommuneObj = scoredCommunes[0].item;
-                              console.log(`Found word match: ${matchedCommuneObj.commune_name_ascii} with ${scoredCommunes[0].matchCount} matching words`);
+
                             }
                           }
                           
                           if (matchedCommuneObj) {
                             matchedCommune = matchedCommuneObj.commune_name_ascii || matchedCommuneObj.commune_name;
-                            console.log("Found matching commune:", matchedCommune);
+
                           } else {
-                            console.log("No matching commune found among available communes");
+
                           }
                         }
                       }
@@ -1485,8 +1409,7 @@ export default function Orders() {
                         Wilaya: selectedCity ? selectedCity.label : "",
                         Commune: matchedCommune // Set matched commune or empty string if not found
                       });
-                      
-                      console.log(`Wilaya changed to ${normalizedValue}, matched commune: ${matchedCommune}`);
+
                   }}
                   requiredIndicator
                 />
@@ -1540,13 +1463,13 @@ export default function Orders() {
                           // Get the commune with the highest match count
                           if (scoredCommunes.length > 0 && scoredCommunes[0].matchCount > 0) {
                             matchingCommune = scoredCommunes[0].item;
-                            console.log(`Found word match on focus: ${matchingCommune.commune_name_ascii} with ${scoredCommunes[0].matchCount} matching words`);
+
                           }
                         }
                         
                         // Update the form with the matched commune name
                         if (matchingCommune) {
-                          console.log(`Correcting commune name from "${shipmentForm.Commune}" to "${matchingCommune.commune_name_ascii}"`);
+
                           setShipmentForm({...shipmentForm, Commune: matchingCommune.commune_name_ascii});
                         }
                       }

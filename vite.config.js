@@ -34,7 +34,7 @@ export default defineConfig({
   build: {
     assetsInlineLimit: 0, // Don't inline assets
     cssCodeSplit: true, // Enable CSS code splitting
-    sourcemap: true, // Generate source maps for better debugging
+    sourcemap: process.env.NODE_ENV !== 'production', // Only generate source maps in development
     rollupOptions: {
       // Remove manual chunks for now to avoid external module conflicts
     },

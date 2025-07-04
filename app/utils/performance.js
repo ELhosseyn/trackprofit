@@ -41,14 +41,7 @@ export function initPerformanceMonitoring() {
     try {
       const navEntry = performance.getEntriesByType('navigation')[0];
       if (navEntry) {
-        console.log('Navigation Timing:', {
-          dnsLookup: navEntry.domainLookupEnd - navEntry.domainLookupStart,
-          tcpConnection: navEntry.connectEnd - navEntry.connectStart,
-          serverResponseTime: navEntry.responseEnd - navEntry.requestStart,
-          domContentLoaded: navEntry.domContentLoadedEventEnd - navEntry.navigationStart,
-          firstPaint: navEntry.responseEnd - navEntry.navigationStart,
-          fullPageLoad: navEntry.loadEventEnd - navEntry.navigationStart
-        });
+
       }
     } catch (e) {
       console.error('Failed to get navigation timing:', e);
@@ -67,7 +60,7 @@ export function markPerformance(name) {
     performance.mark(name);
     
     if (process.env.NODE_ENV !== 'production') {
-      console.log(`Performance Mark: ${name} at ${performance.now().toFixed(2)}ms`);
+
     }
   } catch (e) {
     console.error(`Failed to set performance mark '${name}':`, e);
@@ -92,7 +85,7 @@ export function measurePerformance(name, startMark, endMark) {
       const duration = measures[0].duration;
       
       if (process.env.NODE_ENV !== 'production') {
-        console.log(`Performance Measure: ${name} = ${duration.toFixed(2)}ms`);
+
       }
       
       return duration;
@@ -112,7 +105,7 @@ export function reportPerformanceMetrics(metrics) {
   // Implementation would depend on your monitoring service
   // This could send data to Google Analytics, New Relic, etc.
   if (process.env.NODE_ENV !== 'production') {
-    console.log('Performance Metrics Report:', metrics);
+
   }
   
   // Example implementation for sending to a monitoring endpoint

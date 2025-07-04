@@ -348,8 +348,6 @@ export const loader = async ({ request }) => {
     })
   ]);
 
-  console.log(`Fetched ${allShipments.length} shipments, ${orderCOGSData.length} COGS orders, and ${productCosts.length} product costs`);
-
   const dailyData = {};
   const dateCursor = new Date(start);
   while (dateCursor <= end) {

@@ -44,7 +44,7 @@ async function minifyJs(filePath) {
     const content = await fs.readFile(filePath, 'utf8');
     const result = await minify(content, {
       compress: {
-        drop_console: true,
+        drop_console: process.env.NODE_ENV === 'production',
         drop_debugger: true
       },
       mangle: true

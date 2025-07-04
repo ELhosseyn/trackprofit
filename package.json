@@ -2,9 +2,10 @@
   "name": "trackprofit",
   "private": true,
   "scripts": {
-    "heroku-postbuild": "prisma generate && npm run build",
+    "heroku-postbuild": "prisma generate && npm run build:production",
     "heroku-release": "prisma migrate deploy",
     "build": "remix vite:build",
+    "build:production": "node scripts/build-production.js",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
@@ -12,6 +13,7 @@
     "config:use": "shopify app config use",
     "env": "shopify app env",
     "start": "remix-serve ./build/server/index.js",
+    "start:prod": "NODE_ENV=production npm run start",
     "docker-start": "npm run setup && npm run start",
     "setup": "prisma generate && prisma migrate deploy",
     "lint": "eslint --cache --cache-location ./node_modules/.cache/eslint .",
@@ -22,8 +24,9 @@
     "optimize": "node scripts/optimize-assets.js",
     "optimize:zrexpress": "node scripts/optimize-zrexpress.js",
     "test:perf": "node scripts/test-zrexpress-perf.js",
-    "build:prod": "npm run build && npm run optimize",
-    "analyze": "npx vite-bundle-visualizer"
+    "build:prod": "npm run remove-debug && npm run build",
+    "analyze": "npx vite-bundle-visualizer",
+    "remove-debug": "node scripts/remove-debug-logs.js"
   },
   "type": "module",
   "engines": {
