@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "heroku-postbuild": "prisma generate && npm run build",
+    "heroku-release": "prisma migrate deploy",
     "build": "remix vite:build",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
