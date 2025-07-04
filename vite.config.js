@@ -36,18 +36,12 @@ export default defineConfig({
     cssCodeSplit: true, // Enable CSS code splitting
     sourcemap: true, // Generate source maps for better debugging
     rollupOptions: {
-      output: {
-        manualChunks: {
-          "vendor-react": ["react", "react-dom"],
-          "vendor-shopify": ["@shopify/polaris", "@shopify/app-bridge-react"],
-          "vendor-charts": ["chart.js", "react-chartjs-2", "recharts"],
-        },
-      },
+      // Remove manual chunks for now to avoid external module conflicts
     },
     chunkSizeWarningLimit: 1000, // Increase warning limit for larger chunks
   },
-  // Exclude backup files from being processed
-  assetsInclude: ['**/*.backup'],
+  // Include backup files, .new and .tmp files as assets
+  assetsInclude: ['**/*.backup', '**/*.new', '**/*.tmp'],
   plugins: [
     remix({
       ssr: true,
@@ -62,8 +56,7 @@ export default defineConfig({
   ],
   // Add esbuild configuration to properly handle JSX in .js files
   esbuild: {
-    jsx: 'automatic',
-    jsxInject: "import React from 'react'"
+    jsx: 'automatic'
   },
   resolve: {
     extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
@@ -78,8 +71,6 @@ export default defineConfig({
       }
     }
   },
-  // Add .new and .tmp files to the assets to include
-  assetsInclude: ['**/*.new', '**/*.tmp'],
   server: {
     hmr: hmrConfig,
     port: process.env.PORT || 3000,
