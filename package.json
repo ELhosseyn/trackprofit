@@ -2,6 +2,7 @@
   "name": "trackprofit",
   "private": true,
   "scripts": {
+    "heroku-postbuild": "prisma generate && npm run build",
     "build": "remix vite:build",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
