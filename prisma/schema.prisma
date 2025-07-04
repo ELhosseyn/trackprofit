@@ -13,6 +13,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Force rebuild for PostgreSQL migration
+
 model Session {
   id            String    @id
   shop          String
