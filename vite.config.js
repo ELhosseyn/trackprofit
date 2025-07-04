@@ -40,12 +40,11 @@ export default defineConfig({
     },
     chunkSizeWarningLimit: 1000, // Increase warning limit for larger chunks
   },
-  // Include backup files, .new and .tmp files as assets
-  assetsInclude: ['**/*.backup', '**/*.new', '**/*.tmp'],
+  // Exclude backup files from build processing
   plugins: [
     remix({
       ssr: true,
-      ignoredRouteFiles: ["**/.*"],
+      ignoredRouteFiles: ["**/.*", "**/*.backup", "**/*.tmp"],
       serverModuleFormat: "esm",
       // Config for resolving JSX in .js files
       resolve: {
