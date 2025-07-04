@@ -9,10 +9,8 @@ generator client {
 // enough when changing adapters.
 // See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
 datasource db {
-  provider = "sqlite"
-  url      = "file:/Users/elhosseyn/Desktop/app/trackprofit/prisma/dev.sqlite"
-  // Tell Prisma to use the local file, ensuring write access
-  relationMode = "prisma"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Session {
