@@ -175,7 +175,12 @@ export const loader = async ({ request }) => {
                         id
                         title
                       }
-                      originalUnitPrice
+                      originalUnitPriceSet {
+                        shopMoney {
+                          amount
+                          currencyCode
+                        }
+                      }
                       originalTotalSet {
                         shopMoney {
                           amount

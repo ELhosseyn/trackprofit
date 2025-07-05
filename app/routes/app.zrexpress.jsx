@@ -26,7 +26,7 @@ import {
   Spinner,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
-import { prisma } from "../db.server";
+import prisma from "../db.server";
 import { zrexpress } from "../services/zrexpress.server.js";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 

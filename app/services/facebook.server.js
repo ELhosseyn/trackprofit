@@ -167,7 +167,7 @@ export const facebook = {
       
       if (!adAccountResponse.ok) {
         const error = await adAccountResponse.json();
-        throw new Error(error.error.message);
+        throw new Error(error?.error?.message || 'Failed to fetch ad account data');
       }
       
       const adAccountData = await adAccountResponse.json();
@@ -180,7 +180,7 @@ export const facebook = {
       
       if (!campaignsResponse.ok) {
         const error = await campaignsResponse.json();
-        throw new Error(error.error.message);
+        throw new Error(error?.error?.message || 'Failed to fetch campaigns');
       }
 
       const campaignsData = await campaignsResponse.json();
@@ -204,7 +204,7 @@ export const facebook = {
 
       if (!insightsResponse.ok) {
         const error = await insightsResponse.json();
-        throw new Error(error.error.message);
+        throw new Error(error?.error?.message || 'Failed to fetch insights');
       }
 
       const insightsData = await insightsResponse.json();

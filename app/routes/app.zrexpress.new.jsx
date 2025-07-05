@@ -39,16 +39,15 @@ export const loader = async ({ request }) => {
     
     if (credentials) {
       try {
-
         await zrexpress.validateCredentials(credentials.token, credentials.key);
         isConnected = true;
 
       } catch (error) {
-        console.error('Connection test failed:', error);
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Connection test failed:', error);
+        }
         connectionError = error.message;
       }
-    } else {
-
     }
 
     return json({
@@ -58,7 +57,9 @@ export const loader = async ({ request }) => {
       connectionError
     });
   } catch (error) {
-    console.error('Loader error:', error);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Loader error:', error);
+    }
     return json({
       shop: session.shop,
       isConnected: false,

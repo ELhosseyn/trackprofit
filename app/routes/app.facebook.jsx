@@ -14,7 +14,7 @@ const FacebookMetrics = lazy(() => import("../components/FacebookMetrics.jsx"));
 
 // Server imports
 import { authenticate } from "../shopify.server";
-import { prisma } from "../db.server";
+import prisma from "../db.server";
 import { facebook } from "../services/facebook.server.js";
 import { FACEBOOK_GRAPH_URL } from "../constants.js";
 

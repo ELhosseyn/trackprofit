@@ -59,8 +59,8 @@ export const action = async ({ request }) => {
     // FIXED: Using correct InventoryItemUpdateInput type
     const updateResponse = await admin.graphql(
       `#graphql
-      mutation inventoryItemUpdate($inventoryItemId: ID!, $input: InventoryItemUpdateInput!) {
-        inventoryItemUpdate(id: $inventoryItemId, input: $input) {
+      mutation inventoryItemUpdate($inventoryItemId: ID!, $cost: Decimal) {
+        inventoryItemUpdate(id: $inventoryItemId, input: {cost: $cost}) {
           inventoryItem {
             id
             unitCost {
@@ -77,9 +77,7 @@ export const action = async ({ request }) => {
       {
         variables: {
           inventoryItemId: inventoryItemId,
-          input: {
-            cost: cost
-          }
+          cost: parseFloat(cost) || 0
         }
       }
     );
