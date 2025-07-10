@@ -30,10 +30,10 @@ import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { zrexpress } from "../services/zrexpress.server.js";
 import { formatCurrency, formatNumber } from "../utils/formatters";
+import { useLanguage } from "../utils/i18n/LanguageContext.jsx";
 
 // Lazy load heavy dependencies for client-side only
 const XLSX = lazy(() => import('xlsx'));
-import { useLanguage } from "../utils/i18n/LanguageContext.jsx";
 
 
 // Lazy load components with automatic retry on failure

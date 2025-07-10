@@ -29,7 +29,7 @@ export function useDateRange({
   // Get date range based on preset
   const dateRange = useMemo(() => {
     const today = new Date();
-    const end = new Date(today);
+    let end = new Date(today);
     let start = new Date(today);
     
     switch (datePreset) {
@@ -87,7 +87,7 @@ export function useDateRange({
     
     if (onChange) {
       const today = new Date();
-      const end = new Date(today);
+      let end = new Date(today);
       let start = new Date(today);
       
       switch (value) {

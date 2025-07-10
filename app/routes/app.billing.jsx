@@ -1,5 +1,4 @@
-import { redirect } from "@remix-run/node";
-import { json } from "@remix-run/node";
+import { redirect , json } from "@remix-run/node";
 import { useLoaderData, useFetcher } from "@remix-run/react";
 import { authenticate, MONTHLY_PLAN } from "../shopify.server";
 import { getSubscriptionStatus } from "../models/Subscription.server";

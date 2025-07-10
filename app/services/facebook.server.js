@@ -331,7 +331,7 @@ export const facebook = {
         adsetName,
         budget,
         isLifetimeBudget,
-        productId
+        
       } = campaignDetails;
       
       // 1. Create the campaign

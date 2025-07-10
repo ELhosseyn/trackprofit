@@ -6,7 +6,7 @@ import {
   ScrollRestoration,
 } from "@remix-run/react";
 import { LanguageProvider } from "./utils/i18n/LanguageContext.jsx";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import ShopifyErrorBoundary from "./components/ShopifyErrorBoundary.jsx";
 
 // Tawk.to implementation that avoids hydration issues by loading script only on client-side

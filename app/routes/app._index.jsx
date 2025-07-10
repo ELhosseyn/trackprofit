@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect, useMemo, useRef } from "react";
+import { useCallback, useState, useEffect, useMemo, useRef , Suspense } from "react";
 import { useLoaderData, useFetcher, useNavigation } from "@remix-run/react";
 import { json } from "@remix-run/node";
 import {
@@ -25,7 +25,6 @@ import {
   InlineGrid,
   Banner,
 } from "@shopify/polaris";
-import { Suspense } from "react";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -52,27 +51,98 @@ const SparkLineChart = ({ data, trend, formatValue, language, t, isRTL }) => {
     // console.log('SparkLineChart received data:', data);
   }, [data]);
 
+  // Sanitize data
+  const sanitizedData = data && Array.isArray(data)
+    ? data.filter(d => d && d.value !== undefined && d.value !== null && !isNaN(Number(d.value)))
+      .map(d => ({
+        ...d,
+        value: Number(d.value) || 0
+      }))
+    : [];
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+
+    // Set canvas size
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    // Clear canvas
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    if (sanitizedData.length < 2) {
+      // Draw a simple dot for single data point
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      ctx.fillStyle = trend === 'positive' ? '#008060' : '#DC3545';
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
+      ctx.fill();
+      return;
+    }
+
+    const values = sanitizedData.map(d => d.value);
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values);
+    const range = maxValue - minValue;
+
+    // Handle case where all values are the same (range = 0)
+    const effectiveRange = range === 0 ? Math.max(1, Math.abs(maxValue) * 0.1) : range;
+    const centerValue = range === 0 ? maxValue : minValue;
+
+    const padding = 8;
+    const width = rect.width - padding * 2;
+    const height = rect.height - padding * 2;
+
+    // Create path
+    ctx.beginPath();
+    ctx.strokeStyle = trend === 'positive' ? '#008060' : '#DC3545';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    sanitizedData.forEach((point, index) => {
+      const x = padding + (index / (sanitizedData.length - 1)) * width;
+      let y;
+
+      if (range === 0) {
+        y = padding + height / 2;
+      } else {
+        y = padding + height - ((point.value - minValue) / effectiveRange) * height;
+      }
+
+      if (index === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    });
+
+    ctx.stroke();
+
+    // Fill area under curve
+    if (sanitizedData.length > 1) {
+      ctx.globalAlpha = 0.1;
+      ctx.fillStyle = trend === 'positive' ? '#008060' : '#DC3545';
+      ctx.lineTo(padding + width, padding + height);
+      ctx.lineTo(padding, padding + height);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  }, [sanitizedData, trend, isHovered, hoverIndex]);
+
   // Skip rendering if no data or empty data
-  if (!data || data.length === 0) {
+  if (!data || !Array.isArray(data) || data.length === 0 || sanitizedData.length === 0) {
     return (
       <div style={{ height: '70px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Text variant="bodySm" tone="subdued">{t?.('stats.insufficientData') || 'بيانات غير كافية'}</Text>
-      </div>
-    );
-  }
-
-  // Sanitize data
-  const sanitizedData = data
-    .filter(d => d && d.value !== undefined && d.value !== null && !isNaN(Number(d.value)))
-    .map(d => ({
-      ...d,
-      value: Number(d.value) || 0
-    }));
-
-  if (sanitizedData.length === 0) {
-    return (
-      <div style={{ height: '70px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Text variant="bodySm" tone="subdued">بيانات غير كافية</Text>
       </div>
     );
   }

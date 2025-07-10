@@ -1,5 +1,8 @@
 import { lazy } from 'react';
 
+// Import SimpleDataTable directly instead of lazy loading to fix hydration issues
+import SimpleDataTable from './SimpleDataTable';
+
 // Lazy load Chart components
 export const LazyChartComponents = lazy(() => 
   import('./ChartComponents').then(module => ({
@@ -34,9 +37,6 @@ export const LazyDashboardStats = lazy(() =>
     default: module.default || module
   }))
 );
-
-// Import SimpleDataTable directly instead of lazy loading to fix hydration issues
-import SimpleDataTable from './SimpleDataTable';
 export const LazySimpleDataTable = SimpleDataTable;
 
 // Loading fallback component

@@ -2,7 +2,6 @@
  * useToast Custom Hook
  * Provides toast notification functionality
  */
-import React from "react";
 import { useState, useCallback } from "react";
 import { Toast } from "@shopify/polaris";
 

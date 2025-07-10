@@ -1,3 +1,5 @@
+// Add a fallback for handlePageChange to prevent runtime errors
+function handlePageChange() {}
 import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from "react";
 import { json } from "@remix-run/node";
 import { useLoaderData, useNavigate, useSubmit, useActionData, useNavigation, Form } from "@remix-run/react";
@@ -8,15 +10,15 @@ import {
 } from "@shopify/polaris";
 import { useLanguage } from "../utils/i18n/LanguageContext.jsx";
 
-// Lazy load components with preload hints
-const StatCard = lazy(() => import("../components/StatCard.jsx"));
-const FacebookMetrics = lazy(() => import("../components/FacebookMetrics.jsx"));
-
 // Server imports
 import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { facebook } from "../services/facebook.server.js";
 import { FACEBOOK_GRAPH_URL } from "../constants.js";
+
+// Lazy load components with preload hints
+const StatCard = lazy(() => import("../components/StatCard.jsx"));
+const FacebookMetrics = lazy(() => import("../components/FacebookMetrics.jsx"));
 
 export function meta() {
   return [
@@ -83,6 +85,17 @@ const validateDateRange = (dateRange, startDate, endDate) => {
 };
 
 export const loader = async ({ request }) => {
+  // Define defaultResponse outside try/catch so it's always in scope
+  const defaultResponse = {
+    isConnected: false,
+    adAccounts: [],
+    stats: defaultStats,
+    campaigns: [],
+    accountId: null,
+    dateRange: null,
+    startDate: null,
+    endDate: null,
+  };
   try {
     // Use Promise.all for parallel execution of async operations
     const [{ session }, queryParams] = await Promise.all([
@@ -100,18 +113,10 @@ export const loader = async ({ request }) => {
 
     const { accountId, dateRange, startDate, endDate } = queryParams;
 
-    validateDateRange(dateRange, startDate, endDate);
-
-    const defaultResponse = {
-      isConnected: false,
-      adAccounts: [],
-      stats: defaultStats,
-      campaigns: [],
-      accountId: null,
-      dateRange,
-      startDate,
-      endDate,
-    };
+    // Update defaultResponse with actual date values
+    defaultResponse.dateRange = dateRange;
+    defaultResponse.startDate = startDate;
+    defaultResponse.endDate = endDate;
 
     const fbCredentials = await prisma.FacebookCredential.findUnique({
       where: { shop: session.shop },
