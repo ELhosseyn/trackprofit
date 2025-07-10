@@ -39,6 +39,5 @@ prisma.$connect()
   .catch((error) => {
     console.error('❌ Failed to connect to database:', error);
   });
-
 export { prisma };
 export default prisma;

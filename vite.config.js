@@ -1,6 +1,7 @@
 import { vitePlugin as remix } from "@remix-run/dev";
 import { installGlobals } from "@remix-run/node";
 import { defineConfig } from "vite";
+import { visualizer } from 'rollup-plugin-visualizer';
 import tsconfigPaths from "vite-tsconfig-paths";
 import { getViteSourceMapConfig } from "./app/config/source-maps";
 
@@ -46,7 +47,15 @@ export default defineConfig({
         assetFileNames: "assets/[name]-[hash][extname]",
         chunkFileNames: "assets/[name]-[hash].js",
         entryFileNames: "assets/[name]-[hash].js"
-      }
+      },
+      plugins: [
+        visualizer({
+          filename: './build/client/stats.html',
+          open: false,
+          gzipSize: true,
+          brotliSize: true,
+        })
+      ]
     },
     chunkSizeWarningLimit: 1000, // Increase warning limit for larger chunks
   },

@@ -51,22 +51,16 @@ const LazyImage = ({
       },
       {
         threshold,
-        rootMargin: '100px',
       }
     );
 
     observer.observe(element);
 
     return () => {
-      if (element) {
-        observer.unobserve(element);
-      }
-    };
+    }
   }, [src, threshold]);
 
-  const handleImageLoad = () => {
-    setIsLoaded(true);
-  };
+  const handleImageLoad = () => setIsLoaded(true);
 
   return (
     <div
