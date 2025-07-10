@@ -13,6 +13,9 @@
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 console.log('🚀 Starting production build optimization...');
 
@@ -22,16 +25,17 @@ process.env.NODE_ENV = 'production';
 try {
   // Step 1: Clean debug logs
   console.log('📝 Step 1: Cleaning debug logs...');
-  execSync('node scripts/remove-debug-logs.js', { stdio: 'inherit' });
+  execSync(`node "${path.resolve(__dirname, 'remove-debug-logs.js')}"`, { stdio: 'inherit' });
 
   // Step 2: Build the app
   console.log('🔨 Step 2: Building application...');
+  process.env.SOURCE_MAP = 'false'; // Explicitly disable source maps for production
   execSync('npm run build', { stdio: 'inherit' });
 
   // Step 3: Optimize assets
   console.log('⚡ Step 3: Optimizing assets...');
   try {
-    execSync('node scripts/optimize-assets.js', { stdio: 'inherit' });
+    execSync(`node "${path.resolve(__dirname, 'optimize-assets.js')}"`, { stdio: 'inherit' });
   } catch (error) {
     console.log('⚠️  Asset optimization skipped (dependencies not available)');
   }
@@ -41,7 +45,8 @@ try {
   const envContent = `NODE_ENV=production
 DEBUG=false
 SHOPIFY_APP_ENV=production
-VITE_NODE_ENV=production`;
+VITE_NODE_ENV=production
+GENERATE_SOURCEMAP=false`;
 
   fs.writeFileSync('.env.production', envContent);
   console.log('   ✓ Created .env.production');
