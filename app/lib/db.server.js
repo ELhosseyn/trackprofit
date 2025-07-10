@@ -23,15 +23,11 @@ class DatabaseManager {
     return new PrismaClient({
       log: logLevels,
       errorFormat: 'pretty',
-      // Connection pooling settings for high availability
       datasources: {
         db: {
-          url: process.env.DATABASE_URL,
-          // These pool settings improve handling of many concurrent requests
-          poolTimeout: 30, // 30 seconds
-          connectionLimit: process.env.NODE_ENV === "production" ? 20 : 10,
-        },
-      },
+          url: process.env.DATABASE_URL
+        }
+      }
     });
   }
 
