@@ -1,7 +1,19 @@
 #!/usr/bin/env node
 
+/**
+ * Removes all console.log/debug/warn/error from compiled JS output
+ * Intended to run after build step in production.
+ */
+
 import fs from 'fs';
 import path from 'path';
+
+const buildPath = './build/server'; // Update this if your output is elsewhere
+
+if (!fs.existsSync(buildPath)) {
+  console.warn(`⚠️  Skipping debug log removal: '${buildPath}' not found.`);
+  process.exit(0); // Don’t treat as error
+}
 
 const walk = (dir, callback) => {
   fs.readdirSync(dir).forEach(file => {
@@ -25,6 +37,6 @@ const removeConsoleLogs = (filePath) => {
   }
 };
 
-console.log('🧹 Removing console logs from JS files...');
-walk('./build', removeConsoleLogs);
-console.log('✅ Console log cleanup complete.');
+console.log('🧹 Removing console logs from built JS files...');
+walk(buildPath, removeConsoleLogs);
+console.log('✅ Log cleanup complete.');
