@@ -1,25 +1,33 @@
 /**
  * Internationalization utility for TrackProfit
- * Provides translation capabilities for English and Arabic
+ * Provides translation capabilities for multiple languages
+ * Supports dynamic loading, fallbacks, and interpolation
  */
 
 // Default language setting
 export const DEFAULT_LANGUAGE = 'ar';
 
-// Available languages
+// Available languages with metadata
 export const LANGUAGES = {
   ar: {
     code: 'ar',
     name: 'العربية',
+    nativeName: 'العربية',
     dir: 'rtl',
-    flagEmoji: '🇩🇿',
+    dateFormat: 'dd/MM/yyyy',
+    currencyFormat: 'ar-DZ',
+flagEmoji: '🇸🇦',
   },
   en: {
     code: 'en',
     name: 'English',
+    nativeName: 'English',
     dir: 'ltr',
+    dateFormat: 'MM/dd/yyyy',
+    currencyFormat: 'en-US',
     flagEmoji: '🇬🇧',
-  }
+  },
+  
 };
 
 // Function to determine the initial language from localStorage or browser settings
@@ -387,6 +395,10 @@ export const ar = {
     ordersLoading: 'خطأ في تحميل الطلبات',
     shipmentCreation: 'فشل في إنشاء الشحنة: {{error}}'
   },
+  subscription: {
+    trialMessage: 'أنت في وضع التجربة. ابدأ اشتراكك لفتح جميع المميزات.',
+    manageSubscription: 'إدارة الاشتراك'
+  },
   orders: {
     title: 'الطلبات',
     noOrders: 'لا توجد طلبات',
@@ -565,6 +577,11 @@ export const ar = {
     selectWilayaFirst: 'اختر الولاية أولاً',
     selectCommune: 'اختر البلدية',
     
+    // Credentials fields (added for missing translations)
+    token: 'رمز الوصول',
+    key: 'مفتاح الوصول',
+    saveAndConnect: 'حفظ وربط',
+
     // Messages
     invalidCredentials: 'بيانات الاعتماد غير صالحة. يرجى التحقق من الرمز والمفتاح.',
     credentialsRequired: 'رمز الوصول ومفتاح الوصول مطلوبان',
@@ -625,31 +642,32 @@ export const ar = {
       custom: 'نطاق مخصص',
     },
     campaign: {
+      noData: 'لا توجد حملات بعد. قم بإنشاء أول حملة بالنقر على زر "إنشاء حملة جديدة" أعلاه.',
       create: {
         title: 'إنشاء حملة فيسبوك جديدة',
         details: 'تفاصيل الحملة',
         name: 'اسم الحملة',
         nameRequired: 'اسم الحملة مطلوب',
         objective: 'هدف الحملة',
-        objectives: {
-          linkClicks: 'الزيارات (النقرات)',
-          conversions: 'التحويلات',
-          brandAwareness: 'الوعي بالعلامة التجارية',
-        },
-        budget: {
-          title: 'الميزانية والجدولة',
-          type: 'نوع الميزانية',
-          daily: 'ميزانية يومية',
-          lifetime: 'ميزانية إجمالية',
-          amount: 'الميزانية (دولار أمريكي)',
-        },
-        content: {
-          title: 'محتوى الإعلان',
-          adSetName: 'اسم مجموعة الإعلانات',
-          adSetPlaceholder: 'مثال: US - الجمهور العام',
-          productId: 'معرف المنتج في Shopify',
-          productIdHelp: 'المنتج الذي تريد الإعلان عنه من متجرك',
-        },
+      },
+      objectives: {
+        linkClicks: 'الزيارات (النقرات)',
+        conversions: 'التحويلات',
+        brandAwareness: 'الوعي بالعلامة التجارية',
+      },
+      budget: {
+        title: 'الميزانية والجدولة',
+        type: 'نوع الميزانية',
+        daily: 'ميزانية يومية',
+        lifetime: 'ميزانية إجمالية',
+        amount: 'الميزانية (دولار أمريكي)',
+      },
+      content: {
+        title: 'محتوى الإعلان',
+        adSetName: 'اسم مجموعة الإعلانات',
+        adSetPlaceholder: 'مثال: US - الجمهور العام',
+        productId: 'معرف المنتج في Shopify',
+        productIdHelp: 'المنتج الذي تريد الإعلان عنه من متجرك',
       },
       status: {
         active: 'نشطة',
@@ -970,6 +988,10 @@ export const en = {
     ordersLoading: 'Error loading orders',
     shipmentCreation: 'Failed to create shipment: {{error}}'
   },
+  subscription: {
+    trialMessage: 'You are in trial mode. Start your subscription to unlock all features.',
+    manageSubscription: 'Manage Subscription'
+  },
   orders: {
     title: 'Orders',
     noOrders: 'No orders found',
@@ -1084,11 +1106,11 @@ export const en = {
     connectionSettings: '⚙️ Connection Settings',
     uploadExcel: '📤 Upload Excel File',
     fileSelected: 'File Selected',
-    
+
     // Date Range
     dateRange: '📅 Date Range',
     showingResultsFrom: 'Showing results from {{startDate}} to {{endDate}}',
-    
+
     // Date Range Options
     today: 'Today',
     lastSevenDays: 'Last 7 days',
@@ -1097,11 +1119,11 @@ export const en = {
     lastSixMonths: 'Last 6 months',
     thisYear: 'This year',
     custom: 'Custom',
-    
+
     // Dashboard
     dashboard: '📊 Dashboard',
     connectionError: 'Connection Error',
-    
+
     // Stats
     totalSales: '💰 Total Sales',
     shippingCancelFees: '🚚 Shipping & Cancel Fees',
@@ -1109,7 +1131,7 @@ export const en = {
     delivered: '✅ Delivered',
     inPreparation: '⏳ In Preparation',
     inTransit: '🚛 In Transit',
-    
+
     // Table
     preparingData: 'Preparing data...',
     noShipmentsFound: 'No shipments found in the selected date range',
@@ -1124,11 +1146,11 @@ export const en = {
     amount: '💰 Amount',
     totalShipments: '📊 Total Shipments: {{count}} | Page {{currentPage}} of {{totalPages}}',
     page: 'Page {{currentPage}} of {{totalPages}}',
-    
+
     // Modals
     connectionSettingsTitle: 'Connection Settings',
     createNewShipmentTitle: 'Create New Shipment',
-    
+
     // Form Fields
     clientName: 'Client Name',
     phone1Label: 'Phone Number 1',
@@ -1150,7 +1172,12 @@ export const en = {
     notes: 'Notes (Optional)',
     selectWilayaFirst: 'Select wilaya first',
     selectCommune: 'Select commune',
-    
+
+    // Credentials fields (added for missing translations)
+    token: 'Token',
+    key: 'Key',
+    saveAndConnect: 'Save & Connect',
+
     // Messages
     invalidCredentials: 'Invalid credentials. Please check your token and key.',
     credentialsRequired: 'Token and key are required',
@@ -1211,31 +1238,32 @@ export const en = {
       custom: 'Custom range',
     },
     campaign: {
+      noData: 'No campaigns yet. Create your first campaign by clicking the "Create New Campaign" button above.',
       create: {
         title: 'Create New Facebook Campaign',
         details: 'Campaign Details',
         name: 'Campaign Name',
         nameRequired: 'Campaign name is required',
         objective: 'Campaign Objective',
-        objectives: {
-          linkClicks: 'Traffic (Link Clicks)',
-          conversions: 'Conversions',
-          brandAwareness: 'Brand Awareness',
-        },
-        budget: {
-          title: 'Budget & Schedule',
-          type: 'Budget Type',
-          daily: 'Daily Budget',
-          lifetime: 'Lifetime Budget',
-          amount: 'Budget (USD)',
-        },
-        content: {
-          title: 'Ad Content',
-          adSetName: 'Ad Set Name',
-          adSetPlaceholder: 'e.g., US - Broad Audience',
-          productId: 'Shopify Product ID',
-          productIdHelp: 'The product you want to advertise from your store',
-        },
+      },
+      objectives: {
+        linkClicks: 'Traffic (Link Clicks)',
+        conversions: 'Conversions',
+        brandAwareness: 'Brand Awareness',
+      },
+      budget: {
+        title: 'Budget & Schedule',
+        type: 'Budget Type',
+        daily: 'Daily Budget',
+        lifetime: 'Lifetime Budget',
+        amount: 'Budget (USD)',
+      },
+      content: {
+        title: 'Ad Content',
+        adSetName: 'Ad Set Name',
+        adSetPlaceholder: 'e.g., US - Broad Audience',
+        productId: 'Shopify Product ID',
+        productIdHelp: 'The product you want to advertise from your store',
       },
       status: {
         active: 'Active',

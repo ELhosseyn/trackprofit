@@ -24,6 +24,7 @@ import {
   ChoiceList,
   DatePicker,
   Spinner,
+  Divider,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -200,10 +201,11 @@ export const loader = async ({ request }) => {
           const cancelFee = parseFloat(shipment.cancelFee || 0);
           const status = (shipment.status || "").trim();
 
-          if (status === "Livré" || status === "Livrée") {
+          if ( status === "Livrée" ) {
             acc.grossAmount += totalAmount;
             acc.totalShippingAndCancel += deliveryFee;
             acc.netRevenue += totalAmount - deliveryFee;
+            acc.totalShippingAndCancel += cancelFee;
             acc.deliveredCount++;
           } 
           else if (status === "En Préparation") {
@@ -614,98 +616,128 @@ export default function ZRExpressManagement() {
     );
   }, [newShipment.IDWilaya, communesData]);
   
-  // Date filtering helper functions
-  const getPresetDates = useCallback((preset) => {
-    const today = new Date();
-    let start = new Date();
-    
-    switch (preset) {
-      case "today":
-        start = new Date(today.setHours(0, 0, 0, 0));
-        break;
-      case "lastSevenDays":
-        start = new Date(today);
-        start.setDate(start.getDate() - 7);
-        break;
-      case "thisMonth":
-        start = new Date(today.getFullYear(), today.getMonth(), 1);
-        break;
-      case "lastThreeMonths":
-        start = new Date(today);
-        start.setMonth(start.getMonth() - 3);
-        break;
-      case "lastSixMonths":
-        start = new Date(today);
-        start.setMonth(start.getMonth() - 6);
-        break;
-      case "thisYear":
-        start = new Date(today.getFullYear(), 0, 1);
-        break;
-      default: // last30Days
-        start = new Date(today);
-        start.setDate(start.getDate() - 30);
-    }
-    
-    return {
-      start,
-      end: new Date()
-    };
-  }, []);
+  // =================================================================
+  // FIX START: This block contains the corrected client-side filtering logic.
+  // =================================================================
   
-  const filterDataByDateRange = useCallback((startDate, endDate) => {
-    // If there's no shipping data, no need to filter
-    if (!shippingData || !Array.isArray(shippingData) || shippingData.length === 0) return;
-    
-    // Convert start and end to timestamps for easier comparison
+  // Memoize the filtered data based on the selected date range.
+  // This runs on the client-side whenever the date range changes, without a server reload.
+  const filteredData = useMemo(() => {
+    if (!shippingData || !Array.isArray(shippingData)) {
+      return [];
+    }
+
+    // Set start of the day for the start date for accurate comparison
+    const startDate = new Date(selectedDates.start);
+    startDate.setHours(0, 0, 0, 0);
     const startTimestamp = startDate.getTime();
+
+    // Set end of the day for the end date for accurate comparison
+    const endDate = new Date(selectedDates.end);
+    endDate.setHours(23, 59, 59, 999);
     const endTimestamp = endDate.getTime();
-    
-    // Filter shipping data based on date (first column is date)
-    const filtered = shippingData.filter(row => {
+
+    // Filter the original, unmodified shippingData array
+    return shippingData.filter(row => {
+      // Gracefully handle rows that don't have a date in the first column
       if (!row || !row[0]) return false;
       
-      // Convert date string to timestamp (assuming format is dd/mm/yyyy)
+      // The date is in 'dd/mm/yyyy' format from toLocaleDateString('fr-FR')
       const parts = row[0].split('/');
       if (parts.length !== 3) return false;
       
-      const dateObj = new Date(parts[2], parts[1] - 1, parts[0]);
+      // Create a Date object: new Date(year, monthIndex, day)
+      const dateObj = new Date(parts[2], parseInt(parts[1]) - 1, parts[0]);
+      
+      // Handle invalid dates that might result from parsing
+      if (isNaN(dateObj.getTime())) return false;
+      
       const timestamp = dateObj.getTime();
       
+      // Check if the row's date is within the selected range
       return timestamp >= startTimestamp && timestamp <= endTimestamp;
     });
-    
-    // Update filtered data in state if needed
-    // For now we're just logging the filtered count
+  }, [shippingData, selectedDates]); // Dependencies: re-runs only when source data or dates change
 
-    // You can update state here if you need to display filtered data
-    // setFilteredShippingData(filtered);
-  }, [shippingData]);
+  // When the filtered data changes, reset the user to the first page of results.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filteredData]);
+
+  // Pagination calculation, now based on the *filtered* data length
+  const totalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(filteredData.length / rowsPerPage));
+  }, [filteredData.length, rowsPerPage]);
+
+  // Data for the current page, sliced from the *filtered* data
+  const currentPageData = useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    const end = start + rowsPerPage;
+    return filteredData.slice(start, end);
+  }, [filteredData, currentPage, rowsPerPage]);
   
+  // =================================================================
+  // FIX END
+  // =================================================================
+
   // Memoize shipping price for selected wilaya
   const shippingPrice = useMemo(() => {
     if (!newShipment.IDWilaya || !cities.length) return { domicile: 0, stopdesk: 0 };
     const city = cities.find(c => c.value === newShipment.IDWilaya);
     return city ? city.prices : { domicile: 0, stopdesk: 0 };
   }, [newShipment.IDWilaya, cities]);
-  
+
   // Calculate selected delivery price
   const deliveryPrice = useMemo(() => {
     return newShipment.TypeLivraison === "domicile" 
       ? shippingPrice.domicile 
       : shippingPrice.stopdesk;
   }, [newShipment.TypeLivraison, shippingPrice]);
-  
-  // Pagination calculation with memoization
-  const totalPages = useMemo(() => {
-    return Math.max(1, Math.ceil(shippingData.length / rowsPerPage));
-  }, [shippingData.length, rowsPerPage]);
-  
-  const currentPageData = useMemo(() => {
-    const start = (currentPage - 1) * rowsPerPage;
-    const end = start + rowsPerPage;
-    return shippingData.slice(start, end);
-  }, [shippingData, currentPage, rowsPerPage]);
-  
+
+  // =====================
+  // Recalculate stats based on filteredData
+  // =====================
+  const filteredStats = useMemo(() => {
+    // filteredData: [date, tracking, client, mobileA, mobileB, wilaya, commune, status, total]
+    let grossAmount = 0;
+    let totalShippingAndCancel = 0;
+    let netRevenue = 0;
+    let deliveredCount = 0;
+    let inPreparationCount = 0;
+    let inTransitCount = 0;
+
+    filteredData.forEach(row => {
+      // Defensive: row[7] is status, row[8] is total (e.g. "123 دج")
+      const status = (row[7] || '').trim();
+      // Remove non-numeric chars for total
+      const totalAmount = parseFloat((row[8] || '').replace(/[^\d.,-]/g, '').replace(',', '.')) || 0;
+      // You may want to improve this if you have delivery/cancel fee columns
+      // For now, only gross/net based on available columns
+
+      if ( status === "Livrée" ) {
+        grossAmount += totalAmount;
+        // No delivery fee column in table, so set to 0
+        // netRevenue = grossAmount - totalShippingAndCancel (if you have fee columns)
+        deliveredCount += status === "Livrée" ? 1 : 0;
+        inPreparationCount += status === "En Préparation" ? 1 : 0;
+      } else if (status.includes("Router") || status === "Retour Expéditeur" || status === "Annuler") {
+        inTransitCount++;
+      }
+    });
+
+    // For demo, netRevenue = grossAmount - totalShippingAndCancel (which is 0 here)
+    netRevenue = grossAmount - totalShippingAndCancel;
+
+    return {
+      grossAmount: Number(grossAmount.toFixed(2)),
+      totalShippingAndCancel: Number(totalShippingAndCancel.toFixed(2)),
+      netRevenue: Number(netRevenue.toFixed(2)),
+      deliveredCount,
+      inPreparationCount,
+      inTransitCount
+    };
+  }, [filteredData]);
+
   // Table headers with memoization
   const tableHeaders = useMemo(() => [
     t('zrExpress.date'),
@@ -723,9 +755,9 @@ export default function ZRExpressManagement() {
     if (actionData) {
       if (actionData.success) {
         setToastMessage({
-    content: t('zrExpress.dataUpdatedSuccess'),
-    error: false
-  });
+          content: t('zrExpress.dataUpdatedSuccess'),
+          error: false
+        });
         if (actionData.exportData) {
           setExportData(actionData.exportData);
         }
@@ -733,9 +765,9 @@ export default function ZRExpressManagement() {
         navigate(".", { replace: true });
       } else if (actionData.error) {
         setToastMessage({
-    content: actionData.error,
-    error: true
-  });
+          content: actionData.error,
+          error: true
+        });
         setIsUploading(false);
       }
       setShowToast(true);
@@ -749,16 +781,6 @@ export default function ZRExpressManagement() {
     }, 100);
     return () => clearTimeout(timer);
   }, []);
-
-  useEffect(() => {
-    if (datePreset !== 'custom') {
-      const dates = getPresetDates(datePreset);
-      setSelectedDates(dates);
-      filterDataByDateRange(dates.start, dates.end);
-    }
-  }, [datePreset, getPresetDates, filterDataByDateRange]);
-
-  // This handleCustomDateApply is replaced by the one defined below with useCallback
 
   const handleSaveCredentials = () => {
     setIsLoading(true);
@@ -778,12 +800,6 @@ export default function ZRExpressManagement() {
     submit(formData, { method: "post" });
     setShowNewShipment(false);
   };
-  
-  // This handleCityChange is replaced by the one defined below with useCallback
-
-  // This handleFileUpload is replaced by the one defined below with useCallback
-
-  // This handleFileSelect is replaced by the one defined below with useCallback
 
   // Load communes data only when needed using lazy-loading
   useEffect(() => {
@@ -793,7 +809,6 @@ export default function ZRExpressManagement() {
         if (communesData.length > 0) return;
         
         // Load communes data
-
         const response = await fetch('/data/communes.json');
         if (!response.ok) {
           throw new Error(`Failed to load communes: ${response.status}`);
@@ -825,6 +840,8 @@ export default function ZRExpressManagement() {
       });
       setConnectionError(loaderData.connectionError);
       setHasCredentials(loaderData.hasCredentials || false);
+      // Reset loading state after loader data changes
+      setIsLoading(false);
     }
   }, [loaderData]);
 
@@ -864,7 +881,7 @@ export default function ZRExpressManagement() {
     
     switch (value) {
       case "today":
-        start = new Date(today.setHours(0, 0, 0, 0));
+        start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
         break;
       case "lastSevenDays":
         start = new Date(today);
@@ -891,7 +908,7 @@ export default function ZRExpressManagement() {
     
     setSelectedDates({
       start,
-      end: today
+      end: new Date()
     });
     
     // Close date picker if open
@@ -1058,45 +1075,45 @@ export default function ZRExpressManagement() {
         }}>
           <StatCard 
             title={t('zrExpress.totalSales')} 
-            value={formatCurrency(stats.grossAmount)} 
+            value={formatCurrency(filteredStats.grossAmount)} 
             icon="💰" 
             color="success" 
           />
           <StatCard 
             title={t('zrExpress.shippingCancelFees')} 
-            value={formatCurrency(stats.totalShippingAndCancel)} 
+            value={formatCurrency(filteredStats.totalShippingAndCancel)} 
             icon="🚚" 
             color="critical" 
           />
           <StatCard 
             title={t('zrExpress.netRevenue')} 
-            value={formatCurrency(stats.netRevenue)} 
+            value={formatCurrency(filteredStats.netRevenue)} 
             icon="💎" 
             color="success" 
           />
           <StatCard 
             title={t('zrExpress.delivered')} 
-            value={stats.deliveredCount.toString()} 
+            value={filteredStats.deliveredCount.toString()} 
             icon="✅" 
           />
           <StatCard 
             title={t('zrExpress.inPreparation')} 
-            value={stats.inPreparationCount.toString()} 
+            value={filteredStats.inPreparationCount.toString()} 
             icon="⏳" 
           />
           <StatCard 
             title={t('zrExpress.inTransit')} 
-            value={stats.inTransitCount.toString()} 
+            value={filteredStats.inTransitCount.toString()} 
             icon="🚛" 
           />
         </div>
       </Suspense>
     );
-  }, [stats, t]);
+  }, [filteredStats, t]);
 
   // Optimized table rendering
   const renderShippingTable = useMemo(() => {
-    if (shippingData.length === 0) {
+    if (currentPageData.length === 0) {
       return (
         <div style={{ padding: '2rem', textAlign: 'center' }}>
           <Text variant="bodyLg">{t('zrExpress.noShipmentsFound')}</Text>
@@ -1112,7 +1129,7 @@ export default function ZRExpressManagement() {
           rows={currentPageData}
           truncate
           footerContent={t('zrExpress.totalShipments', { 
-            count: shippingData.length, 
+            count: filteredData.length, 
             currentPage, 
             totalPages 
           })}
@@ -1133,7 +1150,7 @@ export default function ZRExpressManagement() {
         </div>
       </div>
     );
-  }, [currentPageData, tableHeaders, currentPage, totalPages, shippingData.length, t, isRTL]);
+  }, [currentPageData, tableHeaders, currentPage, totalPages, filteredData.length, t, isRTL]);
 
   // Optimized modal forms with memoization
   const renderCredentialsModal = useMemo(() => (
@@ -1217,10 +1234,6 @@ export default function ZRExpressManagement() {
           disabled: isLoading
         } : undefined}
         secondaryActions={[
-          { 
-            content: language === 'ar' ? "🌐 English" : "🌐 العربية", 
-            onAction: () => language === 'ar' ? changeLanguage('en') : changeLanguage('ar')
-          },
           hasCredentials && { 
             content: t('zrExpress.connectionSettings'), 
             onAction: () => setShowCredentialsModal(true),
@@ -1264,71 +1277,69 @@ export default function ZRExpressManagement() {
           {/* Date Range Section - Always render this first for immediate UI */}
           <Layout.Section>
             <Card>
-              <BlockStack gap="400">
-                <Box padding="400">
-                  <InlineStack align="space-between" blockAlign="center">
-                    <BlockStack gap="200">
-                      <Text variant="headingLg" as="h2">{t('zrExpress.dateRange')}</Text>
-                      <Text variant="bodyMd" as="p">
-                        {t('zrExpress.showingResultsFrom', { 
-                          startDate: selectedDates.start.toLocaleDateString(language === 'ar' ? 'ar-DZ' : 'en-US'), 
-                          endDate: selectedDates.end.toLocaleDateString(language === 'ar' ? 'ar-DZ' : 'en-US')
-                        })}
-                      </Text>
-                    </BlockStack>
+              <Box padding="400">
+                <InlineStack align="space-between" blockAlign="center">
+                  <BlockStack gap="200">
+                    <Text variant="headingLg" as="h2">{t('zrExpress.dateRange')}</Text>
+                    <Text variant="bodyMd" as="p">
+                      {t('zrExpress.showingResultsFrom', { 
+                        startDate: selectedDates.start.toLocaleDateString(language === 'ar' ? 'ar-DZ' : 'en-US'), 
+                        endDate: selectedDates.end.toLocaleDateString(language === 'ar' ? 'ar-DZ' : 'en-US')
+                      })}
+                    </Text>
+                  </BlockStack>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative' }}>
-                      <InlineStack gap="200" wrap={false}>
-                        {[
-                          { value: "today", label: t('zrExpress.today') },
-                          { value: "lastSevenDays", label: t('zrExpress.lastSevenDays') },
-                          { value: "thisMonth", label: t('zrExpress.thisMonth') },
-                          { value: "lastThreeMonths", label: t('zrExpress.lastThreeMonths') },
-                          { value: "lastSixMonths", label: t('zrExpress.lastSixMonths') },
-                          { value: "thisYear", label: t('zrExpress.thisYear') },
-                        ].map(preset => (
-                          <Button 
-                            key={preset.value} 
-                            size="slim" 
-                            onClick={() => handleDatePresetChange(preset.value)} 
-                            pressed={datePreset === preset.value}
-                          >
-                            {preset.label}
-                          </Button>
-                        ))}
-                      </InlineStack>
-                      
-                      <Button 
-                        onClick={() => setDatePickerActive(!datePickerActive)} 
-                        disclosure={datePickerActive ? "up" : "down"}
-                      >
-                        {`📅 ${selectedDates.start.toLocaleDateString(language === 'ar' ? 'ar-DZ' : 'en-US')} - ${selectedDates.end.toLocaleDateString(language === 'ar' ? 'ar-DZ' : 'en-US')}`}
-                      </Button>
-                      
-                      {datePickerActive && (
-                        <div style={{
-                          position: 'absolute', top: '105%', zIndex: 400,
-                          right: isRTL ? undefined : 0, left: isRTL ? 0 : undefined
-                        }}>
-                          <Card>
-                            <DatePicker
-                              month={selectedDates.end.getMonth()}
-                              year={selectedDates.end.getFullYear()}
-                              onChange={handleCustomDateApply}
-                              onMonthChange={(month, year) => setSelectedDates(prev => ({ 
-                                start: new Date(year, month, 1), 
-                                end: new Date(year, month + 1, 0) 
-                              }))}
-                              selected={{ start: selectedDates.start, end: selectedDates.end }}
-                              allowRange
-                            />
-                          </Card>
-                        </div>
-                      )}
-                    </div>
-                  </InlineStack>
-                </Box>
-              </BlockStack>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', position: 'relative' }}>
+                    <InlineStack gap="200" wrap={false}>
+                      {[
+                        { value: "today", label: t('zrExpress.today') },
+                        { value: "lastSevenDays", label: t('zrExpress.lastSevenDays') },
+                        { value: "thisMonth", label: t('zrExpress.thisMonth') },
+                        { value: "lastThreeMonths", label: t('zrExpress.lastThreeMonths') },
+                        { value: "lastSixMonths", label: t('zrExpress.lastSixMonths') },
+                        { value: "thisYear", label: t('zrExpress.thisYear') },
+                      ].map(preset => (
+                        <Button 
+                          key={preset.value} 
+                          size="slim" 
+                          onClick={() => handleDatePresetChange(preset.value)} 
+                          pressed={datePreset === preset.value}
+                        >
+                          {preset.label}
+                        </Button>
+                      ))}
+                    </InlineStack>
+                    
+                    <Button 
+                      onClick={() => setDatePickerActive(!datePickerActive)} 
+                      disclosure={datePickerActive ? "up" : "down"}
+                    >
+                      {`📅 ${selectedDates.start.toLocaleDateString(language === 'ar' ? 'ar-DZ' : 'en-US')} - ${selectedDates.end.toLocaleDateString(language === 'ar' ? 'ar-DZ' : 'en-US')}`}
+                    </Button>
+                    
+                    {datePickerActive && (
+                      <div style={{
+                        position: 'absolute', top: '105%', zIndex: 400,
+                        right: isRTL ? undefined : 0, left: isRTL ? 0 : undefined
+                      }}>
+                        <Card>
+                          <DatePicker
+                            month={selectedDates.end.getMonth()}
+                            year={selectedDates.end.getFullYear()}
+                            onChange={handleCustomDateApply}
+                            onMonthChange={(month, year) => setSelectedDates(prev => ({ 
+                              start: new Date(year, month, 1), 
+                              end: new Date(year, month + 1, 0) 
+                            }))}
+                            selected={{ start: selectedDates.start, end: selectedDates.end }}
+                            allowRange
+                          />
+                        </Card>
+                      </div>
+                    )}
+                  </div>
+                </InlineStack>
+              </Box>
             </Card>
           </Layout.Section>
 
@@ -1385,18 +1396,47 @@ export default function ZRExpressManagement() {
                       🔑
                     </div>
                     <BlockStack gap="200" align="center" inlineAlign="center">
-                      <Text variant="headingLg" as="h2">{t('zrExpress.connectionSettings')}</Text>
+                      <Text variant="headingLg" as="h2">{t('zrExpress.connectionSettingsTitle') || "إعدادات الاتصال"}</Text>
                       <Text variant="bodyMd" as="p" alignment="center">
-                        You need to connect to ZR Express API to use this feature
+                        {t('zrExpress.credentialsRequired') || "رمز الوصول ومفتاح الوصول مطلوبان"}
+                      </Text>
+                      <TextField
+                        label={t('zrExpress.token') || "رمز الوصول"}
+                        value={token}
+                        onChange={setToken}
+                        autoComplete="off"
+                        placeholder="أدخل رمز الوصول من ZR Express"
+                        disabled={isLoading}
+                        requiredIndicator
+                      />
+                      <TextField
+                        label={t('zrExpress.key') || "مفتاح الوصول"}
+                        value={key}
+                        onChange={setKey}
+                        autoComplete="off"
+                        placeholder="أدخل مفتاح الوصول من ZR Express"
+                        disabled={isLoading}
+                        requiredIndicator
+                      />
+                      {connectionError && <Banner status="critical">{connectionError}</Banner>}
+                      <Button 
+                        primary 
+                        size="large"
+                        onClick={handleCredentialsSubmit}
+                        loading={isLoading}
+                        disabled={isLoading}
+                      >
+                        {t('zrExpress.saveAndConnect') || "حفظ وربط"}
+                      </Button>
+                      <Divider />
+                      <Text variant="bodySm" color="subdued" alignment="center">
+                        <b>كيفية الحصول على بيانات ZR Express:</b><br />
+                        1. قم بتسجيل الدخول إلى حسابك في ZR Express.<br />
+                        2. انتقل إلى إعدادات المطور أو واجهة API.<br />
+                        3. انسخ رمز الوصول (Token) ومفتاح الوصول (Key) وضعهما هنا.<br />
+                        إذا لم يكن لديك بيانات، تواصل مع دعم ZR Express.
                       </Text>
                     </BlockStack>
-                    <Button 
-                      primary 
-                      size="large"
-                      onClick={() => setShowCredentialsModal(true)}
-                    >
-                      Connect Now
-                    </Button>
                   </BlockStack>
                 </Box>
               </Card>

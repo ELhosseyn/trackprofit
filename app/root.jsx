@@ -4,30 +4,12 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
-  useMatches,
 } from "@remix-run/react";
 import { LanguageProvider } from "./utils/i18n/LanguageContext.jsx";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import ShopifyErrorBoundary from "./components/ShopifyErrorBoundary.jsx";
 
-// TawkToScript component to safely load chat script client-side only
-function TawkToScript() {
-  useEffect(() => {
-    // Only run on client side
-    const Tawk_API = (window.Tawk_API = window.Tawk_API || {});
-    const Tawk_LoadStart = new Date();
-
-    const s1 = document.createElement("script");
-    const s0 = document.getElementsByTagName("script")[0];
-
-    s1.async = true;
-    s1.src = "https://embed.tawk.to/684d648aa3ad3e1910ba0e14/1itn51fep";
-    s1.charset = "UTF-8";
-    s1.setAttribute("crossorigin", "*");
-    s0.parentNode.insertBefore(s1, s0);
-  }, []);
-
-  return null;
-}
+// Tawk.to implementation that avoids hydration issues by loading script only on client-side
 
 export const meta = () => {
   return [
@@ -53,14 +35,54 @@ export const meta = () => {
 };
 
 export default function App() {
-  const matches = useMatches();
+  // Initialize Tawk.to chat widget after component mounts (client-side only)
+  useEffect(() => {
+    try {
+      // Create and inject the Tawk.to script
+      const s1 = document.createElement("script");
+      s1.async = true;
+      s1.src = 'https://embed.tawk.to/684d3ad3c2de78190f31825b/1itmqrio0';
+      s1.charset = 'UTF-8';
+      s1.setAttribute('crossorigin', '*');
+      
+      // Add error handling
+      s1.onerror = (error) => {
+        console.error('Error loading Tawk.to script:', error);
+      };
+      
+      // Append the script to the document
+      document.body.appendChild(s1);
 
-  return <AppContent matches={matches} />;
-}
+      // Inject error and warning suppression scripts
+      const suppressErrors = document.createElement("script");
+      suppressErrors.src = "/js/suppress-sourcemap-errors.js";
+      suppressErrors.async = true;
+      document.body.appendChild(suppressErrors);
 
-function AppContent({ matches }) {
+      const suppressWarnings = document.createElement("script");
+      suppressWarnings.src = "/js/suppress-warnings.js";
+      suppressWarnings.async = true;
+      document.body.appendChild(suppressWarnings);
+      
+      // Cleanup function to remove the script if component unmounts
+      return () => {
+        if (document.body.contains(s1)) {
+          document.body.removeChild(s1);
+        }
+        if (document.body.contains(suppressErrors)) {
+          document.body.removeChild(suppressErrors);
+        }
+        if (document.body.contains(suppressWarnings)) {
+          document.body.removeChild(suppressWarnings);
+        }
+      };
+    } catch (error) {
+      console.error('Failed to initialize Tawk.to chat widget:', error);
+    }
+  }, []); // Empty dependency array ensures this runs once after initial render
+
   return (
-    <html>
+    <html lang="en">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -76,16 +98,19 @@ function AppContent({ matches }) {
         />
         <Meta />
         <Links />
+        <base href="/" />
       </head>
       <body>
-        <LanguageProvider>
-          <Outlet />
-        </LanguageProvider>
+        <ShopifyErrorBoundary>
+          <LanguageProvider>
+            <Outlet />
+          </LanguageProvider>
+        </ShopifyErrorBoundary>
         <ScrollRestoration />
         <Scripts />
-        {/* Tawk.to Chat Widget Script - Lazy load with defer */}
-        {/* Tawk.to Chat Widget Script - Added with useEffect to avoid hydration mismatch */}
-        <TawkToScript />
+        {/* Scripts to suppress errors and warnings in console */}
+        <script src="/js/suppress-sourcemap-errors.js"></script>
+        <script src="/js/suppress-warnings.js"></script>
       </body>
     </html>
   );

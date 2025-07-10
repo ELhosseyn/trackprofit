@@ -4,7 +4,7 @@ import { useLoaderData, useNavigate, useSubmit, useActionData, useNavigation, Fo
 import {
   Page, Layout, Text, Badge, FormLayout, TextField, Select, Modal, Frame,
   Banner, DataTable, Spinner, Card, Box, BlockStack, InlineStack,
-  DatePicker, Divider, EmptyState, Popover, Button, Icon,
+  DatePicker, Divider, EmptyState, Popover, Button, Icon, Link,
 } from "@shopify/polaris";
 import { useLanguage } from "../utils/i18n/LanguageContext.jsx";
 
@@ -13,8 +13,8 @@ const StatCard = lazy(() => import("../components/StatCard.jsx"));
 const FacebookMetrics = lazy(() => import("../components/FacebookMetrics.jsx"));
 
 // Server imports
-import { authenticate } from "../shopify.server";
-import prisma from "../db.server";
+import { authenticate } from "../shopify.server.js";
+import prisma from "../db.server.js";
 import { facebook } from "../services/facebook.server.js";
 import { FACEBOOK_GRAPH_URL } from "../constants.js";
 
@@ -44,6 +44,9 @@ export function links() {
     // Preload critical assets
     { rel: "preload", href: "/images/facebook-brand.svg", as: "image" },
     { rel: "preload", href: "/images/empty-state.svg", as: "image" },
+    { rel: "preload", href: "/images/fb-permission-guide-1.png", as: "image" },
+    { rel: "preload", href: "/images/fb-permission-guide-2.png", as: "image" },
+    { rel: "preload", href: "/images/fb-permission-guide-3.png", as: "image" },
     
     // Font optimization for metrics
     { rel: "preload", href: "/fonts/ShopifySans-Bold.woff2", as: "font", type: "font/woff2", crossOrigin: "anonymous" },
@@ -404,6 +407,11 @@ export const action = async ({ request }) => {
   };
 
 const ITEMS_PER_PAGE = 10; // Number of campaigns per page
+const guideImages = [
+  '/images/fb-permission-guide-1.png',
+  '/images/fb-permission-guide-2.png',
+  '/images/fb-permission-guide-3.png',
+];
 
 export default function FacebookAds() {
   const { t, isRTL } = useLanguage();
@@ -439,6 +447,17 @@ export default function FacebookAds() {
     start: initialStartDate ? new Date(initialStartDate) : new Date(),
     end: initialEndDate ? new Date(initialEndDate) : new Date()
   });
+  const [guideImageIndex, setGuideImageIndex] = useState(0);
+
+  // Animate guide images in modal
+  useEffect(() => {
+    if (isConnectModalOpen) {
+      const interval = setInterval(() => {
+        setGuideImageIndex(prev => (prev + 1) % guideImages.length);
+      }, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [isConnectModalOpen]);
 
   // Memoized form state to prevent unnecessary re-renders
   const [adForm, setAdForm] = useState({
@@ -919,6 +938,7 @@ export default function FacebookAds() {
           </Layout>
           
           <Modal
+            large
             open={isConnectModalOpen}
             onClose={() => isConnected && setIsConnectModalOpen(false)}
             title={
@@ -926,7 +946,7 @@ export default function FacebookAds() {
                 <div style={{ background: 'linear-gradient(135deg, #1877F2 0%, #3b5998 100%)', borderRadius: '8px', padding: '6px', color: 'white' }}>
                   🔐
                 </div>
-                {t('facebookAds.connect.title')}
+                Connect Facebook Account
               </div>
             }
             primaryAction={{
@@ -941,18 +961,42 @@ export default function FacebookAds() {
             }] : []}
           >
             <Modal.Section>
-              <BlockStack gap="400">
-                <Banner status="info">{t('facebookAds.connect.instructions')}</Banner>
-                <TextField
-                  label={t('facebookAds.connect.tokenLabel')}
-                  value={accessToken}
-                  onChange={setAccessToken}
-                  type="password"
-                  autoComplete="off"
-                  placeholder={t('facebookAds.connect.tokenPlaceholder')}
-                  required
-                />
-              </BlockStack>
+              <InlineStack gap="500" wrap={false} blockAlign="start">
+                <div style={{ flex: '1 1 50%' }}>
+                  <Form onSubmit={(e) => { e.preventDefault(); handleSaveCredentials(); }}>
+                    <BlockStack gap="400">
+                      <Text variant="bodyMd" as="p">
+                        To get started, please provide a User Access Token from the{' '}
+                        <Link url="https://developers.facebook.com/tools/explorer/" target="_blank" removeUnderline>
+                          Facebook Graph API Explorer
+                        </Link>
+                        {' '}with <Badge tone="info">read_insights</Badge>, <Badge tone="info">ads_read</Badge>, and <Badge tone="info">ads_management</Badge> permissions.
+                      </Text>
+                      <TextField
+                        label="Facebook Access Token"
+                        value={accessToken}
+                        onChange={setAccessToken}
+                        type="password"
+                        autoComplete="off"
+                        placeholder="Paste your token here"
+                        required
+                      />
+                    </BlockStack>
+                  </Form>
+                </div>
+                <div style={{ flex: '1 1 45%', minWidth: 0 }}>
+                  <img
+                    src="/images/1.png"
+                    alt="Facebook permissions guide step 1"
+                    style={{
+                      width: '100%',
+                      borderRadius: 'var(--p-border-radius-2)',
+                      border: '1px solid var(--p-color-border)',
+                      transition: 'opacity 0.5s ease-in-out',
+                    }}
+                  />
+                </div>
+              </InlineStack>
             </Modal.Section>
           </Modal>
           

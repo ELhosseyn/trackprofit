@@ -1,3 +1,6 @@
+// Import router future flags
+const { getRouterFutureConfig } = require('./app/config/router-config');
+
 // Related: https://github.com/remix-run/remix/issues/2835#issuecomment-1144102176
 // Replace the HOST env var with SHOPIFY_APP_URL so that it doesn't break the remix server. The CLI will eventually
 // stop passing in HOST, so we can remove this workaround after the next major release.
@@ -15,14 +18,13 @@ module.exports = {
   ignoredRouteFiles: ["**/.*"],
   appDirectory: "app",
   serverModuleFormat: "esm", // Changed to ESM for better compatibility
+  assetsBuildDirectory: "public/build",
+  publicPath: "/build/",
   dev: { port: process.env.HMR_SERVER_PORT || 8002 },
   future: {
+    ...getRouterFutureConfig(),
     v2_dev: true,
-    v2_errorBoundary: true,
     v2_headers: true,
-    v2_meta: true,
-    v2_normalizeFormMethod: true,
-    v2_routeConvention: true,
   },
   serverDependenciesToBundle: [
     /^chart.js/,

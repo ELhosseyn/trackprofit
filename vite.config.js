@@ -2,6 +2,7 @@ import { vitePlugin as remix } from "@remix-run/dev";
 import { installGlobals } from "@remix-run/node";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
+import { getViteSourceMapConfig } from "./app/config/source-maps";
 
 installGlobals({ nativeFetch: true });
 
@@ -34,9 +35,14 @@ export default defineConfig({
   build: {
     assetsInlineLimit: 0, // Don't inline assets
     cssCodeSplit: true, // Enable CSS code splitting
-    sourcemap: false, // Disable source maps in production for security and performance
+    ...getViteSourceMapConfig(), // Use our dynamic source map configuration
     rollupOptions: {
       // Remove manual chunks for now to avoid external module conflicts
+      output: {
+        assetFileNames: "assets/[name]-[hash][extname]",
+        chunkFileNames: "assets/[name]-[hash].js",
+        entryFileNames: "assets/[name]-[hash].js"
+      }
     },
     chunkSizeWarningLimit: 1000, // Increase warning limit for larger chunks
   },
@@ -59,6 +65,10 @@ export default defineConfig({
   },
   resolve: {
     extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
+    alias: {
+      '~/components': '/Users/elhosseyn/Desktop/last/trackprofit/app/components',
+      '~': '/Users/elhosseyn/Desktop/last/trackprofit/app'
+    }
   },
   // Add configuration for handling JSX
   optimizeDeps: {
@@ -73,5 +83,11 @@ export default defineConfig({
   server: {
     hmr: hmrConfig,
     port: process.env.PORT || 3000,
+    fs: {
+      // Allow serving files from one level up to the project root
+      allow: ['..']
+    }
   },
+  publicDir: "public",
+  appType: "custom"
 });

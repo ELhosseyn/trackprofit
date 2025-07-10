@@ -12,11 +12,23 @@ export default function ChartComponents({ profitDistributionData, performanceMet
     
     const loadChartComponents = async () => {
       try {
-        // Import Chart.js components
+        // Import Chart.js components first
         const ChartJS = await import('chart.js');
-        const { Chart, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title } = ChartJS;
+        const { 
+          Chart, 
+          ArcElement, 
+          Tooltip, 
+          Legend, 
+          CategoryScale, 
+          LinearScale, 
+          BarElement, 
+          Title,
+          PointElement,
+          LineElement,
+          Filler
+        } = ChartJS;
         
-        // Register components
+        // Register all necessary components
         Chart.register(
           ArcElement,
           Tooltip,
@@ -24,10 +36,13 @@ export default function ChartComponents({ profitDistributionData, performanceMet
           CategoryScale,
           LinearScale,
           BarElement,
-          Title
+          Title,
+          PointElement,
+          LineElement,
+          Filler
         );
         
-        // Import chart components
+        // Import chart components from react-chartjs-2
         const reactChartjs = await import('react-chartjs-2');
         
         if (isMounted) {
@@ -66,7 +81,7 @@ export default function ChartComponents({ profitDistributionData, performanceMet
     );
   }
   
-  // Options for better mobile responsiveness
+  // Options for better mobile responsiveness and RTL support
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
@@ -78,41 +93,61 @@ export default function ChartComponents({ profitDistributionData, performanceMet
           padding: 10,
           font: {
             size: 12
-          }
+          },
+          usePointStyle: true
         }
       },
       tooltip: {
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-        padding: 10,
+        enabled: true,
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        padding: 12,
         titleFont: {
-          size: 14
+          size: 14,
+          weight: 'bold'
         },
         bodyFont: {
-          size: 12
+          size: 13
         },
         displayColors: true,
-        boxWidth: 10,
-        boxHeight: 10
+        boxWidth: 12,
+        boxHeight: 12,
+        cornerRadius: 4,
+        callbacks: {
+          label: function(context) {
+            const value = context.raw;
+            const total = context.dataset.data.reduce((a, b) => a + b, 0);
+            const percentage = ((value / total) * 100).toFixed(1);
+            return `${context.label}: ${new Intl.NumberFormat('ar-DZ').format(value)} (${percentage}%)`;
+          }
+        }
       }
+    },
+    layout: {
+      padding: 10
     }
   };
 
-  // Check if data is valid
+  // Check if data is valid with better validation
   const isProfitDataValid = profitDistributionData && 
     profitDistributionData.datasets && 
     profitDistributionData.datasets.length > 0 && 
     profitDistributionData.datasets[0].data && 
-    profitDistributionData.datasets[0].data.length > 0;
+    profitDistributionData.datasets[0].data.length > 0 &&
+    profitDistributionData.datasets[0].data.some(value => value > 0);
     
   const isPerformanceDataValid = performanceMetricsData && 
     performanceMetricsData.datasets && 
     performanceMetricsData.datasets.length > 0 && 
     performanceMetricsData.datasets[0].data && 
-    performanceMetricsData.datasets[0].data.length > 0;
+    performanceMetricsData.datasets[0].data.length > 0 &&
+    performanceMetricsData.datasets[0].data.some(value => value > 0);
 
   return (
     <>
-      <div style={{ height: '250px', marginBottom: '20px' }}>
+      <div style={{ height: '300px', marginBottom: '30px' }}>
+        <h3 style={{ marginBottom: '15px', textAlign: 'center', fontSize: '18px', fontWeight: 'bold' }}>
+          توزيع الأرباح والتكاليف
+        </h3>
         {isProfitDataValid ? (
           <PieChart data={profitDistributionData} options={chartOptions} />
         ) : (
@@ -121,9 +156,37 @@ export default function ChartComponents({ profitDistributionData, performanceMet
           </Banner>
         )}
       </div>
-      <div style={{ height: '250px' }}>
+      <div style={{ height: '300px' }}>
+        <h3 style={{ marginBottom: '15px', textAlign: 'center', fontSize: '18px', fontWeight: 'bold' }}>
+          مؤشرات الأداء
+        </h3>
         {isPerformanceDataValid ? (
-          <BarChart data={performanceMetricsData} options={chartOptions} />
+          <BarChart data={performanceMetricsData} options={{
+            ...chartOptions,
+            scales: {
+              y: {
+                beginAtZero: true,
+                grid: {
+                  color: 'rgba(0,0,0,0.1)'
+                },
+                ticks: {
+                  font: {
+                    size: 12
+                  }
+                }
+              },
+              x: {
+                grid: {
+                  display: false
+                },
+                ticks: {
+                  font: {
+                    size: 12
+                  }
+                }
+              }
+            }
+          }} />
         ) : (
           <Banner title="بيانات غير كافية" tone="warning">
             <p>لا توجد بيانات كافية لعرض مخطط مؤشرات الأداء</p>

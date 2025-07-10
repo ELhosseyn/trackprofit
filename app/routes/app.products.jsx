@@ -24,7 +24,6 @@ import {
 import { useLanguage } from "../utils/i18n/LanguageContext.jsx";
 import { formatCurrency, formatNumber, formatPercentage, formatDate as formatDateUtil } from "../utils/formatters";
 
-// CORRECTED ACTION FUNCTION
 export const action = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
   const formData = await request.formData();
@@ -56,7 +55,6 @@ export const action = async ({ request }) => {
     }
     const inventoryItemId = variantResponse.data.productVariant.inventoryItem.id;
 
-    // FIXED: Using correct InventoryItemUpdateInput type
     const updateResponse = await admin.graphql(
       `#graphql
       mutation inventoryItemUpdate($inventoryItemId: ID!, $cost: Decimal) {
@@ -114,9 +112,25 @@ export const action = async ({ request }) => {
   }
 };
 
-
 export const loader = async ({ request }) => {
   const { admin, session } = await authenticate.admin(request);
+
+  let shopCurrency = 'USD'; // Default fallback
+  try {
+    const currencyQueryResponse = await admin.graphql(`
+      query getShopCurrency {
+        shop {
+          currencyCode
+        }
+      }
+    `);
+    const currencyData = await currencyQueryResponse.json();
+    if (currencyData.data?.shop?.currencyCode) {
+      shopCurrency = currencyData.data.shop.currencyCode;
+    }
+  } catch (e) {
+    console.error("Failed to fetch shop currency:", e);
+  }
 
   let allProducts = [];
   let hasNextPage = true;
@@ -197,6 +211,7 @@ export const loader = async ({ request }) => {
       totalCount: allProducts.length,
       error: null,
       shop: session.shop,
+      currencyCode: shopCurrency,
       timestamp: Date.now()
     });
 
@@ -206,13 +221,16 @@ export const loader = async ({ request }) => {
       products: { edges: [] },
       error: error.message,
       shop: session.shop,
+      currencyCode: shopCurrency,
       timestamp: Date.now()
     }, { status: 500 });
   }
 };
 
+
 export default function Products() {
   const initialData = useLoaderData();
+  const { currencyCode } = initialData;
   const [data, setData] = useState(initialData);
   const navigation = useNavigation();
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -221,10 +239,9 @@ export default function Products() {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [toastError, setToastError] = useState(false);
-  const { language, t, isRTL, changeLanguage } = useLanguage();
+  const { language, t, isRTL } = useLanguage();
   const isArabic = language === 'ar';
   const costUpdateFetcher = useFetcher();
-  const refreshFetcher = useFetcher();
 
   const isPageLoading = navigation.state === "loading";
   const isUpdating = costUpdateFetcher.state === "submitting";
@@ -294,33 +311,48 @@ export default function Products() {
     });
   }, [data.products.edges]);
 
+  // ✅ FIX: Replaced the entire useEffect with the corrected calculation logic.
   useEffect(() => {
     const filtered = filterProductsByDateRange(selectedDates.start, selectedDates.end);
     setFilteredProducts(filtered);
     setCurrentPage(1);
 
-    let totalProducts = 0, totalInventory = 0, totalCost = 0, totalProfit = 0, totalMargin = 0, profitCount = 0;
+    let totalInventory = 0;
+    let totalCost = 0;
+    let totalRevenue = 0;
+    
     filtered.forEach(({ node }) => {
-      totalProducts++;
       const inventory = node.totalInventory || 0;
       totalInventory += inventory;
+
       const variant = node.variants.edges[0]?.node;
-      const sellingPrice = parseFloat(variant?.price || node.priceRangeV2.minVariantPrice.amount);
+      const sellingPrice = parseFloat(variant?.price || node.priceRangeV2.minVariantPrice.amount || 0);
       const costPerItem = parseFloat(variant?.inventoryItem?.unitCost?.amount || 0);
-      const profitPerItem = sellingPrice - costPerItem;
-      const profit = profitPerItem * inventory;
-      const margin = sellingPrice > 0 ? ((profitPerItem / sellingPrice) * 100) : 0;
-      if (!isNaN(profit)) { totalProfit += profit; }
-      if (!isNaN(costPerItem)) { totalCost += (costPerItem * inventory); }
-      if (!isNaN(margin) && sellingPrice > 0) { totalMargin += margin; profitCount++; }
+      
+      if (!isNaN(sellingPrice) && !isNaN(costPerItem)) {
+          // Calculate totals based on inventory value
+          totalRevenue += sellingPrice * inventory;
+          totalCost += costPerItem * inventory;
+      }
     });
+    
+    // Total profit is simply total revenue minus total cost
+    const totalProfit = totalRevenue - totalCost;
+    const totalProducts = filtered.length;
+    
+    // Avg Profit is the total potential profit divided by the number of unique products
+    const avgProfit = totalProducts > 0 ? totalProfit / totalProducts : 0;
+    
+    // Avg Margin is the overall margin: (Total Profit / Total Revenue) * 100
+    const avgMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+    
     setStats({
       totalProducts,
       totalInventory,
       totalCost: Number(totalCost.toFixed(2)),
       totalProfit: Number(totalProfit.toFixed(2)),
-      avgProfit: totalProducts > 0 ? Number((totalProfit / totalProducts).toFixed(2)) : 0,
-      avgMargin: profitCount > 0 ? Number((totalMargin / profitCount).toFixed(2)) : 0
+      avgProfit: Number(avgProfit.toFixed(2)),
+      avgMargin: Number(avgMargin.toFixed(2))
     });
   }, [selectedDates, data.products.edges, filterProductsByDateRange]);
 
@@ -334,11 +366,18 @@ export default function Products() {
     setDatePickerActive(false);
   }, []);
 
-  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / rowsPerPage));
+  const displayProducts = filteredProducts;
+  const totalPages = Math.max(1, Math.ceil(displayProducts.length / rowsPerPage));
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
-  const currentPageData = filteredProducts.slice((safeCurrentPage - 1) * rowsPerPage, safeCurrentPage * rowsPerPage);
-  // Use our date formatter for consistency
+  const currentPageData = displayProducts.slice((safeCurrentPage - 1) * rowsPerPage, safeCurrentPage * rowsPerPage);
   const formatDate = (date) => date.toLocaleDateString('fr-CA');
+
+  const getDisplayCurrency = (product) => {
+    const variant = product.variants.edges[0]?.node;
+    const productCurrency = product.priceRangeV2.minVariantPrice.currencyCode;
+    const costCurrency = variant?.inventoryItem?.unitCost?.currencyCode;
+    return productCurrency || costCurrency || currencyCode;
+  };
 
   useEffect(() => {
     if (costUpdateFetcher.state === "idle" && costUpdateFetcher.data) {
@@ -363,25 +402,6 @@ export default function Products() {
       }
     }
   }, [costUpdateFetcher.state, costUpdateFetcher.data, t]);
-  
-  // No-op for now
-  // useEffect(() => {
-  //   if (refreshFetcher.data && refreshFetcher.data.timestamp !== data.timestamp) {
-  //     setData(refreshFetcher.data);
-  //     setToastMessage(isArabic ? "تم تحديث البيانات" : "Data refreshed");
-  //     setToastError(false);
-  //     setShowToast(true);
-  //   }
-  // }, [refreshFetcher.data, data.timestamp, isArabic]);
-  //
-  // useEffect(() => {
-  //   const intervalId = setInterval(() => {
-  //     if (refreshFetcher.state === 'idle' && !isUpdating) {
-  //       refreshFetcher.load(window.location.pathname);
-  //     }
-  //   }, 30000);
-  //   return () => clearInterval(intervalId);
-  // }, [refreshFetcher, isUpdating]);
 
   const StatCard = ({ title, value, icon, color = "subdued" }) => (
     <Card padding="400">
@@ -461,9 +481,6 @@ export default function Products() {
             <Text variant="headingXl" as="h1">{t('products.management')}</Text>
           </div>
         }
-        secondaryActions={[
-          { content: language === 'ar' ? '🌐 English' : '🌐 العربية', onAction: () => language === 'ar' ? changeLanguage('en') : changeLanguage('ar') }
-        ]}
       >
         <Layout>
           <Layout.Section>
@@ -516,9 +533,10 @@ export default function Products() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px', marginBottom: '24px' }}>
               <StatCard title={t('products.totalProducts')} value={formatNumber(stats.totalProducts)} icon="📦" color="success" />
               <StatCard title={t('products.totalInventory')} value={formatNumber(stats.totalInventory)} icon="🧺" color="info" />
-              <StatCard title={t('products.totalCost')} value={formatCurrency(stats.totalCost)} icon="💸" color="warning" />
-              <StatCard title={t('products.totalProfit')} value={formatCurrency(stats.totalProfit)} icon="💰" color="success" />
-              <StatCard title={t('products.avgProfit')} value={formatCurrency(stats.avgProfit)} icon="💎" color="success" />
+              {/* ✅ FIX: Changed `true` to `false` to prevent showing a negative sign for cost */}
+              <StatCard title={t('products.totalCost')} value={formatCurrency(stats.totalCost, false, currencyCode)} icon="💸" color="warning" />
+              <StatCard title={t('products.totalProfit')} value={formatCurrency(stats.totalProfit, stats.totalProfit < 0, currencyCode)} icon="💰" color="success" />
+              <StatCard title={t('products.avgProfit')} value={formatCurrency(stats.avgProfit, stats.avgProfit < 0, currencyCode)} icon="💎" color="success" />
               <StatCard title={t('products.avgMargin')} value={formatPercentage(stats.avgMargin)} icon="📈" color="info" />
             </div>
           </Layout.Section>
@@ -538,14 +556,14 @@ export default function Products() {
                   <DataTable
                     columnContentTypes={['text', 'text', 'text', 'text', 'numeric', 'numeric', 'numeric', 'numeric', 'numeric']}
                     headings={[
-                      `📅 ${t('products.table.date')}`, 
-                      `🏷️ ${t('products.table.product')}`, 
-                      `🗂️ ${t('products.table.category')}`, 
-                      `📊 ${t('products.table.status')}`, 
-                      `💵 ${t('products.table.price')}`, 
-                      `💸 ${t('products.table.cost')}`, 
-                      `💰 ${t('products.table.profit')}`, 
-                      `📈 ${t('products.table.margin')}`, 
+                      `📅 ${t('products.table.date')}`,
+                      `🏷️ ${t('products.table.product')}`,
+                      `🗂️ ${t('products.table.category')}`,
+                      `📊 ${t('products.table.status')}`,
+                      `💵 ${t('products.table.price')}`,
+                      `💸 ${t('products.table.cost')}`,
+                      `💰 ${t('products.table.profit')}`,
+                      `📈 ${t('products.table.margin')}`,
                       `📦 ${t('products.table.inventory')}`
                     ]}
                     rows={currentPageData.map((edge) => {
@@ -556,26 +574,27 @@ export default function Products() {
                       const profit = sellingPrice - costPerItem;
                       const margin = sellingPrice > 0 ? ((profit / sellingPrice) * 100) : 0;
                       const createdAt = getCreatedAt(node);
-                      const currency = node.priceRangeV2.minVariantPrice.currencyCode;
+                      const displayCurrency = getDisplayCurrency(node);
+                      
                       return [
                         formatDate(createdAt),
                         node.title,
                         node.productType || t('products.table.uncategorized'),
                         <Badge tone={node.status === 'ACTIVE' ? 'success' : 'critical'}>{node.status}</Badge>,
-                        formatCurrency(sellingPrice, false, currency),
+                        formatCurrency(sellingPrice, false, displayCurrency),
                         costPerItem > 0
-                          ? formatCurrency(costPerItem, false, currency)
+                          ? formatCurrency(costPerItem, false, displayCurrency)
                           : <Button size="slim" onClick={() => handleCostUpdateClick(node.id)} loading={isUpdating && selectedProduct?.id === node.id} disabled={isUpdating}>
                             {t('products.setCost')}
                           </Button>,
-                        <Text color={profit >= 0 ? "success" : "critical"}>{formatCurrency(profit, false, currency)}</Text>,
+                        <Text color={profit >= 0 ? "success" : "critical"}>{formatCurrency(profit, false, displayCurrency)}</Text>,
                         <Text color={margin >= 0 ? "success" : "critical"}>{formatPercentage(margin)}</Text>,
                         node.totalInventory?.toString() || '0'
                       ];
                     })}
                     footerContent={
                       <div style={{ padding: '16px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', fontWeight: 'bold', textAlign: 'center' }}>
-                        {`📊 ${t('products.pagination.totalProducts')}: ${filteredProducts.length} | ${t('products.pagination.page')} ${safeCurrentPage} ${t('products.pagination.of')} ${totalPages}`}
+                        {`📊 ${t('products.pagination.totalProducts')}: ${displayProducts.length} | ${t('products.pagination.page')} ${safeCurrentPage} ${t('products.pagination.of')} ${totalPages}`}
                       </div>
                     }
                   />
@@ -624,7 +643,7 @@ export default function Products() {
                 value={costValue}
                 onChange={setCostValue}
                 autoComplete="off"
-                prefix="DZD"
+                prefix={selectedProduct ? getDisplayCurrency(selectedProduct) : currencyCode}
                 placeholder="0.00"
               />
             </BlockStack>

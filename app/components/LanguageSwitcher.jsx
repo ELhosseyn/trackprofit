@@ -52,7 +52,7 @@ export default function LanguageSwitcher() {
       onClose={() => setPopoverActive(false)}
       preferredAlignment="end"
     >
-      <Box padding="200">
+      <Box padding="400">
         <ActionList
           actionRole="menuitem"
           items={languageItems}

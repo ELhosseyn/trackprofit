@@ -71,16 +71,16 @@ export class ZRExpressService {
       const formattedData = {
         Colis: [{
           Tracking: this.generateTracking(),
-          TypeLivraison: colisData.TypeLivraison || "0",
-          TypeColis: colisData.TypeColis || "0",
+          TypeLivraison: String(colisData.TypeLivraison || "0"),
+          TypeColis: String(colisData.TypeColis || "0"),
           Confrimee: colisData.Confrimee || "1", // Default to confirmed (1) if not provided
           Client: colisData.Client || "",
           MobileA: colisData.MobileA || "",
           MobileB: colisData.MobileB || "",
           Adresse: colisData.Adresse || "",
-          IDWilaya: colisData.IDWilaya || "31",
+          IDWilaya: String(colisData.IDWilaya || "31"),
           Commune: colisData.Commune || "",
-          Total: colisData.Total || "0",
+          Total: String(colisData.Total || "0"),
           Note: colisData.Note || "",
           TProduit: colisData.TProduit || "",
           id_Externe: this.generateExternalId(),
@@ -145,20 +145,29 @@ export class ZRExpressService {
           mobileA: formattedData.Colis[0].MobileA,
           mobileB: formattedData.Colis[0].MobileB,
           address: formattedData.Colis[0].Adresse,
-          wilayaId: parseInt(formattedData.Colis[0].IDWilaya),
+          wilayaId: parseInt(formattedData.Colis[0].IDWilaya) || 31,
           wilaya: wilayaName, // Set the wilaya name we just fetched
           commune: formattedData.Colis[0].Commune,
-          total: parseFloat(formattedData.Colis[0].Total),
+          total: parseFloat(formattedData.Colis[0].Total) || 0,
           note: formattedData.Colis[0].Note,
-          productType: formattedData.Colis[0].TProduit.split(' - ')[0], // Take the first part before any description
-          deliveryType: parseInt(formattedData.Colis[0].TypeLivraison),
-          packageType: parseInt(formattedData.Colis[0].TypeColis),
+          productType: (formattedData.Colis[0].TProduit || '').split(' - ')[0] || 'N/A', // Safe split with fallback
+          deliveryType: parseInt(formattedData.Colis[0].TypeLivraison) || 0,
+          packageType: parseInt(formattedData.Colis[0].TypeColis) || 0,
           status: "En Préparation",
           statusId: 1,
           externalId: formattedData.Colis[0].id_Externe,
           createdAt: new Date(),
           updatedAt: new Date()
         };
+
+        // Debug logging to check field values
+        console.log('ZRExpress service - shipmentData before save:', {
+          deliveryType: shipmentData.deliveryType,
+          packageType: shipmentData.packageType,
+          TypeLivraison: formattedData.Colis[0].TypeLivraison,
+          TypeColis: formattedData.Colis[0].TypeColis
+        });
+        
         
         // Include orderId if provided
         if (colisData.orderId) {
@@ -211,7 +220,16 @@ export class ZRExpressService {
         }
         
         // Save the shipment to the database
-        const savedShipment = await this.prisma.shipment.create({
+        // Validate that all required fields are present
+        const requiredFields = ['deliveryType', 'packageType', 'wilayaId', 'total'];
+        const missingFields = requiredFields.filter(field => shipmentData[field] === undefined || shipmentData[field] === null);
+        
+        if (missingFields.length > 0) {
+          console.error('Missing required fields in shipmentData:', missingFields, shipmentData);
+          throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+        }
+        
+        const savedShipment = await this.prisma.Shipment.create({
           data: shipmentData
         });
 
@@ -255,7 +273,7 @@ export class ZRExpressService {
           } : {})
         };
 
-        dbShipments = await this.prisma.shipment.findMany({
+        dbShipments = await this.prisma.Shipment.findMany({
           where: whereClause,
           orderBy: { updatedAt: 'desc' }
         });
@@ -285,7 +303,7 @@ export class ZRExpressService {
 
         }
 
-        dbShipments = await this.prisma.shipment.findMany({
+        dbShipments = await this.prisma.Shipment.findMany({
           where: whereClause,
           orderBy: { updatedAt: 'desc' }
         });
@@ -351,14 +369,14 @@ export class ZRExpressService {
           mobileA: apiShipment.MobileA || '',
           mobileB: apiShipment.MobileB || '',
           address: apiShipment.Adresse || '',
-          wilayaId: parseInt(apiShipment.IDWilaya || '0'),
+          wilayaId: parseInt(apiShipment.IDWilaya || '0') || 0,
           wilaya: apiShipment.Wilaya || '',
           commune: apiShipment.Commune || '',
-          total: parseFloat(apiShipment.Total || '0'),
+          total: parseFloat(apiShipment.Total || '0') || 0,
           note: apiShipment.Note || '',
           productType: apiShipment.TProduit || '',
-          deliveryType: parseInt(apiShipment.TypeLivraison || '0'),
-          packageType: parseInt(apiShipment.TypeColis || '0'),
+          deliveryType: parseInt(apiShipment.TypeLivraison || '0') || 0,
+          packageType: parseInt(apiShipment.TypeColis || '0') || 0,
           status: apiShipment.Situation || 'En Préparation',
           statusId: parseInt(apiShipment.IDSituation || '1'),
           deliveryFee: parseFloat(apiShipment.Tarif_Livrée || '0'),
@@ -387,7 +405,7 @@ export class ZRExpressService {
 
           if (shipment) {
             // Update existing shipment
-            shipment = await this.prisma.shipment.update({
+            shipment = await this.prisma.Shipment.update({
               where: { id: shipment.id },
               data: {
                 ...shipmentData,
@@ -396,7 +414,7 @@ export class ZRExpressService {
             });
           } else {
             // Create new shipment
-            shipment = await this.prisma.shipment.create({
+            shipment = await this.prisma.Shipment.create({
               data: {
                 ...shipmentData,
                 externalId: this.generateExternalId(),
@@ -528,6 +546,94 @@ export class ZRExpressService {
     } catch (error) {
       console.error('Get recent updates error:', error);
       throw error;
+    }
+  }
+
+  async getNetProfit(shop, dateRange = null) {
+    try {
+      if (!shop) {
+        throw new Error('Shop parameter is required');
+      }
+
+      let whereCondition = {
+        shop: shop
+      };
+
+      // Add date range filter if provided
+      if (dateRange && dateRange.start && dateRange.end) {
+        whereCondition.updatedAt = {
+          gte: new Date(dateRange.start),
+          lte: new Date(dateRange.end)
+        };
+      }
+
+      // Get all shipments for the shop within the date range
+      const shipments = await this.prisma.shipment.findMany({
+        where: whereCondition,
+        select: {
+          id: true,
+          total: true,
+          totalCost: true,
+          totalRevenue: true,
+          profit: true,
+          deliveryFee: true,
+          cancelFee: true,
+          status: true,
+          updatedAt: true
+        }
+      });
+
+      let totalRevenue = 0;
+      let totalCosts = 0;
+      let totalDeliveryFees = 0;
+      let totalCancelFees = 0;
+      let deliveredCount = 0;
+      let cancelledCount = 0;
+
+      shipments.forEach(shipment => {
+        const revenue = parseFloat(shipment.total || 0);
+        const cost = parseFloat(shipment.totalCost || 0);
+        const deliveryFee = parseFloat(shipment.deliveryFee || 0);
+        const cancelFee = parseFloat(shipment.cancelFee || 0);
+
+        if (shipment.status === "Livrée") {
+          // Delivered shipments contribute to revenue
+          totalRevenue += revenue;
+          totalCosts += cost;
+          totalDeliveryFees += deliveryFee;
+          deliveredCount++;
+        } else if (shipment.status === "Annulé" || shipment.status?.includes("Retour")) {
+          // Cancelled/returned shipments only incur fees
+          totalCancelFees += cancelFee;
+          cancelledCount++;
+        }
+      });
+
+      const netProfit = totalRevenue - totalCosts - totalDeliveryFees - totalCancelFees;
+
+      return {
+        success: true,
+        data: {
+          netProfit: netProfit,
+          totalRevenue: totalRevenue,
+          totalCosts: totalCosts,
+          totalDeliveryFees: totalDeliveryFees,
+          totalCancelFees: totalCancelFees,
+          totalShipments: shipments.length,
+          deliveredCount: deliveredCount,
+          cancelledCount: cancelledCount,
+          // Additional metrics
+          profitMargin: totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0,
+          deliveryRate: shipments.length > 0 ? (deliveredCount / shipments.length) * 100 : 0
+        }
+      };
+
+    } catch (error) {
+      console.error('Error calculating ZR Express net profit:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to calculate net profit'
+      };
     }
   }
 

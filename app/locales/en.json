@@ -1,0 +1,10 @@
+{
+  "general": {
+    "pageXofY": "Page {{currentPage}} of {{totalPages}}"
+  },
+  "zrExpress": {
+    "token": "Token",
+    "key": "Key",
+    "saveAndConnect": "Save and Connect"
+  }
+}

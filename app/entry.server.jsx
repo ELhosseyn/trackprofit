@@ -4,8 +4,9 @@ import { RemixServer } from "@remix-run/react";
 import { createReadableStreamFromReadable } from "@remix-run/node";
 import { isbot } from "isbot";
 import { addDocumentResponseHeaders } from "./shopify.server";
+import { addSecurityHeaders } from "./middleware/security.server";
 
-export const streamTimeout = 5000;
+export const streamTimeout = 3000;
 
 export default async function handleRequest(
   request,
@@ -26,12 +27,15 @@ export default async function handleRequest(
           const stream = createReadableStreamFromReadable(body);
 
           responseHeaders.set("Content-Type", "text/html");
-          resolve(
-            new Response(stream, {
-              headers: responseHeaders,
-              status: responseStatusCode,
-            }),
-          );
+          let response = new Response(stream, {
+            headers: responseHeaders,
+            status: responseStatusCode,
+          });
+          
+          // Add security headers
+          response = addSecurityHeaders(request, response);
+          
+          resolve(response);
           pipe(body);
         },
         onShellError(error) {
@@ -44,7 +48,7 @@ export default async function handleRequest(
       },
     );
 
-    // Automatically timeout the React renderer after 6 seconds, which ensures
+    // Automatically timeout the React renderer after 4 seconds, which ensures
     // React has enough time to flush down the rejected boundary contents
     setTimeout(abort, streamTimeout + 1000);
   });
