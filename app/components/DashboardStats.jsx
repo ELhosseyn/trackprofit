@@ -1,4 +1,4 @@
-import { Grid, Text } from "@shopify/polaris";
+import { Grid } from "@shopify/polaris";
 import DashboardCard from "./DashboardCard";
 
 export default function DashboardStats({ stats, formatCurrency, formatNumber, facebook, exchangeRate }) {

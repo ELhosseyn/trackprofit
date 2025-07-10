@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Banner, Spinner } from '@shopify/polaris';
+// Removed Tooltip import from Polaris (not used)
 
 export default function ChartComponents({ profitDistributionData, performanceMetricsData }) {
   const [isChartLoaded, setIsChartLoaded] = useState(false);

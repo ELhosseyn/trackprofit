@@ -1,4 +1,4 @@
-import { BlockStack, Text, Grid, Banner, SkeletonBodyText } from "@shopify/polaris";
+import {  Text, Grid, Banner, SkeletonBodyText } from "@shopify/polaris";
 import DashboardCard from "./DashboardCard";
 import { useEffect, useState } from "react";
 

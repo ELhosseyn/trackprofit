@@ -110,6 +110,8 @@ class DatabaseManager {
 
 // Create a singleton instance
 const dbManager = new DatabaseManager();
+// Alias for Prisma client for legacy imports
+export const db = dbManager.getPrismaClient();
 
 // Connect to the database
 dbManager.connect()

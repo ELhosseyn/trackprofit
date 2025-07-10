@@ -1,7 +1,7 @@
 /**
  * i18n utility functions and hooks
  */
-import { useLanguage } from '../utils/i18n/LanguageContext';
+import { useLanguage } from '../utils/i18n/LanguageContext.jsx';
 
 /**
  * Custom hook that provides translation utilities

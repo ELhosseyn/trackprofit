@@ -2,7 +2,7 @@
  * Shipping Service module for TrackProfit
  * Handles all shipping-related operations and API interactions
  */
-import { db } from '../../../lib/db.server';
+import { prisma as db } from '../../../lib/db.server';
 import { zrexpress } from '../../../services/zrexpress.server';
 
 /**

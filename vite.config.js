@@ -35,6 +35,7 @@ export default defineConfig({
   build: {
     assetsInlineLimit: 0, // Don't inline assets
     cssCodeSplit: true, // Enable CSS code splitting
+    sourcemap: false, // Disable source maps in production
     ...getViteSourceMapConfig(), // Use our dynamic source map configuration
     rollupOptions: {
       // Remove manual chunks for now to avoid external module conflicts

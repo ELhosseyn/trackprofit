@@ -19,7 +19,7 @@ const DATE_PRESETS = [
  * @param {Object} options - Hook options
  * @returns {Object} - Date range state and functions
  */
-export default function useDateRange({ 
+export function useDateRange({ 
   initialPreset = "monthly",
   onChange = null
 } = {}) {
@@ -170,3 +170,5 @@ export default function useDateRange({
     presets: DATE_PRESETS
   };
 }
+
+export default useDateRange;

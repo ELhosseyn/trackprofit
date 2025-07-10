@@ -35,8 +35,6 @@ import { formatCurrency, formatNumber } from "../utils/formatters";
 const XLSX = lazy(() => import('xlsx'));
 import { useLanguage } from "../utils/i18n/LanguageContext.jsx";
 
-// Use dynamic import for large JSON data
-const getCommunesData = () => import("../../public/data/communes.json").then(module => module.default);
 
 // Lazy load components with automatic retry on failure
 const StatCard = lazy(() => import("../components/StatCard"));

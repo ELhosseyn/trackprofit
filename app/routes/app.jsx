@@ -6,7 +6,7 @@ import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
 import { authenticate, MONTHLY_PLAN } from "../shopify.server";
 import { getSubscriptionStatus } from "../models/Subscription.server";
 import { Suspense, lazy } from 'react';
-import { Frame, Loading, TopBar } from "@shopify/polaris";
+import { Frame, Loading } from "@shopify/polaris";
 import LanguageSwitcher from "../components/LanguageSwitcher";
 import { useLanguage } from "../utils/i18n/LanguageContext.jsx";
 import { redirect } from "@remix-run/node";

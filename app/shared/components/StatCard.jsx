@@ -9,7 +9,7 @@ import { Card, Text, BlockStack, InlineStack } from "@shopify/polaris";
  * @param {Object} props - Component props
  * @returns {JSX.Element} - Component
  */
-export default function StatCard({ 
+export function StatCard({ 
   title, 
   value, 
   icon, 
@@ -43,3 +43,5 @@ export default function StatCard({
     </Card>
   );
 }
+
+export default StatCard;
