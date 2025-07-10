@@ -124,6 +124,7 @@ export const ar = {
     pageInfo: 'الصفحة {{current}} من {{total}}',
     page: 'الصفحة',
     of: 'من',
+    pageXofY: 'صفحة {{page}} من {{total}}',
     totalCampaigns: 'إجمالي الحملات: {{count}}',
   },
   navigation: {
@@ -735,6 +736,7 @@ export const en = {
     pageInfo: 'Page {{current}} of {{total}}',
     page: 'Page',
     of: 'of',
+    pageXofY: 'Page {{page}} of {{total}}',
     totalCampaigns: 'Total Campaigns: {{count}}',
   },
   navigation: {

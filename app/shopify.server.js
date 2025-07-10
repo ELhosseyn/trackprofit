@@ -24,7 +24,7 @@ const shopify = shopifyApp({
   restResources,
   billing: {
     [MONTHLY_PLAN]: {
-      amount: 0,
+      amount: 9.99,
       currencyCode: "USD",
       interval: BillingInterval.Every30Days,
       trialDays: 3,
@@ -58,6 +58,12 @@ const shopify = shopifyApp({
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),
+  // Add the following CSP directives
+  csp: {
+    "script-src": ["'self'", "https://cdn.shopify.com", "https://.shopifycloud.com", "https://.tawk.to", "'unsafe-inline'", "'unsafe-eval'", "http://localhost:*", "ws://localhost:*", "wss://localhost:*", "https://cdn.jsdelivr.net"],
+    "media-src": ["'self'", "https://embed.tawk.to"],
+    "img-src": ["'self'", "data:", "https://cdn.shopify.com"],
+  },
 });
 
 export default shopify;

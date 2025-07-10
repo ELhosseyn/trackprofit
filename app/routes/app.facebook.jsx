@@ -44,9 +44,7 @@ export function links() {
     // Preload critical assets
     { rel: "preload", href: "/images/facebook-brand.svg", as: "image" },
     { rel: "preload", href: "/images/empty-state.svg", as: "image" },
-    { rel: "preload", href: "/images/fb-permission-guide-1.png", as: "image" },
-    { rel: "preload", href: "/images/fb-permission-guide-2.png", as: "image" },
-    { rel: "preload", href: "/images/fb-permission-guide-3.png", as: "image" },
+    
     
     // Font optimization for metrics
     { rel: "preload", href: "/fonts/ShopifySans-Bold.woff2", as: "font", type: "font/woff2", crossOrigin: "anonymous" },
@@ -408,9 +406,7 @@ export const action = async ({ request }) => {
 
 const ITEMS_PER_PAGE = 10; // Number of campaigns per page
 const guideImages = [
-  '/images/fb-permission-guide-1.png',
-  '/images/fb-permission-guide-2.png',
-  '/images/fb-permission-guide-3.png',
+  
 ];
 
 export default function FacebookAds() {
