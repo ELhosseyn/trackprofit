@@ -1,5 +1,4 @@
 // Add a fallback for handlePageChange to prevent runtime errors
-function handlePageChange() {}
 import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from "react";
 import { json } from "@remix-run/node";
 import { useLoaderData, useNavigate, useSubmit, useActionData, useNavigation, Form } from "@remix-run/react";
@@ -15,6 +14,7 @@ import { authenticate } from "../shopify.server.js";
 import prisma from "../db.server.js";
 import { facebook } from "../services/facebook.server.js";
 import { FACEBOOK_GRAPH_URL } from "../constants.js";
+function handlePageChange() {}
 
 // Lazy load components with preload hints
 const StatCard = lazy(() => import("../components/StatCard.jsx"));

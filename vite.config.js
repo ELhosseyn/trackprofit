@@ -79,8 +79,7 @@ export default defineConfig({
   resolve: {
     extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
     alias: {
-      '~/components': '/Users/elhosseyn/Desktop/last/trackprofit/app/components',
-      '~': '/Users/elhosseyn/Desktop/last/trackprofit/app'
+      '~': '/Users/elhosseyn/Downloads/trackprofit/app'
     }
   },
   // Add configuration for handling JSX

@@ -432,5 +432,3 @@ Performance logs can be viewed in the browser console when running in production
 
 ## Resources
 =======
-# trackprofit
->>>>>>> c13081c4ae7fce56110d77e4010b4902e5805711
