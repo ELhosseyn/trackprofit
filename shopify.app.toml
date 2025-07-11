@@ -3,7 +3,7 @@
 client_id = "28b20b94bc527381392af6771293bd9f"
 name = "TrackProfit"
 handle = "trackprofit-2"
-application_url = "https://trackprofit-2e3b1ae962a3.herokuapp.com"
+application_url = "http://localhost:3458/"
 embedded = true
 
 [build]
@@ -26,7 +26,7 @@ api_version = "2025-04"
   "orders/updated",
   "orders/cancelled"
 ]
-  uri = "https://trackprofit-2e3b1ae962a3.herokuapp.com/webhooks"
+  uri = "http://localhost:3458/webhooks"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
@@ -34,7 +34,7 @@ scopes = "read_draft_orders,read_inventory,read_orders,read_products,write_inven
 
 [auth]
 redirect_urls = [
-  "https://trackprofit-2e3b1ae962a3.herokuapp.com/auth/callback",
-  "https://trackprofit-2e3b1ae962a3.herokuapp.com/api/auth/callback",
-  "https://trackprofit-2e3b1ae962a3.herokuapp.com/auth/shopify/callback"
+  "http://localhost:3458/auth/callback",
+  "http://localhost:3458/api/auth/callback",
+  "http://localhost:3458/auth/shopify/callback"
 ]
