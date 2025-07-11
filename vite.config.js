@@ -1,15 +1,14 @@
 import { vitePlugin as remix } from "@remix-run/dev";
 import { installGlobals } from "@remix-run/node";
 import { defineConfig } from "vite";
-import { visualizer } from 'rollup-plugin-visualizer';
+// ❌ احذف هذا الاستيراد الثابت
+// import { visualizer } from 'rollup-plugin-visualizer';
 import tsconfigPaths from "vite-tsconfig-paths";
 import { getViteSourceMapConfig } from "./app/config/source-maps";
 
 installGlobals({ nativeFetch: true });
 
-// Related: https://github.com/remix-run/remix/issues/2835#issuecomment-1144102176
-// Replace the HOST env var with SHOPIFY_APP_URL so that it doesn't break the remix server. The CLI will eventually
-// stop passing in HOST, so we can remove this workaround after the next major release.
+// Shopify workaround
 if (
   process.env.HOST &&
   (!process.env.SHOPIFY_APP_URL ||
@@ -35,71 +34,74 @@ if (host === "localhost") {
   };
 }
 
-export default defineConfig({
-  build: {
-    assetsInlineLimit: 0, // Don't inline assets
-    cssCodeSplit: true, // Enable CSS code splitting
-    sourcemap: false, // Disable source maps in production
-    ...getViteSourceMapConfig(), // Use our dynamic source map configuration
-    rollupOptions: {
-      // Remove manual chunks for now to avoid external module conflicts
-      output: {
-        assetFileNames: "assets/[name]-[hash][extname]",
-        chunkFileNames: "assets/[name]-[hash].js",
-        entryFileNames: "assets/[name]-[hash].js"
+export default defineConfig(async () => {
+  // ✅ حمل visualizer فقط في بيئة التطوير
+  const rollupPlugins = [];
+  if (process.env.NODE_ENV !== 'production') {
+    const { visualizer } = await import('rollup-plugin-visualizer');
+    rollupPlugins.push(
+      visualizer({
+        filename: './build/client/stats.html',
+        open: false,
+        gzipSize: true,
+        brotliSize: true,
+      })
+    );
+  }
+
+  return {
+    build: {
+      assetsInlineLimit: 0,
+      cssCodeSplit: true,
+      sourcemap: false,
+      ...getViteSourceMapConfig(),
+      rollupOptions: {
+        output: {
+          assetFileNames: "assets/[name]-[hash][extname]",
+          chunkFileNames: "assets/[name]-[hash].js",
+          entryFileNames: "assets/[name]-[hash].js"
+        },
+        plugins: rollupPlugins
       },
-      plugins: [
-        visualizer({
-          filename: './build/client/stats.html',
-          open: false,
-          gzipSize: true,
-          brotliSize: true,
-        })
-      ]
+      chunkSizeWarningLimit: 1000,
     },
-    chunkSizeWarningLimit: 1000, // Increase warning limit for larger chunks
-  },
-  // Exclude backup files from build processing
-  plugins: [
-    remix({
-      ssr: true,
-      ignoredRouteFiles: ["**/.*", "**/*.backup", "**/*.tmp"],
-      serverModuleFormat: "esm",
-      // Config for resolving JSX in .js files
-      resolve: {
-        conditions: ["development", "browser"],
+    plugins: [
+      remix({
+        ssr: true,
+        ignoredRouteFiles: ["**/.*", "**/*.backup", "**/*.tmp"],
+        serverModuleFormat: "esm",
+        resolve: {
+          conditions: ["development", "browser"],
+        }
+      }),
+      tsconfigPaths(),
+    ],
+    esbuild: {
+      jsx: 'automatic'
+    },
+    resolve: {
+      extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
+      alias: {
+        '~': '/Users/elhosseyn/Downloads/trackprofit/app'
       }
-    }),
-    tsconfigPaths(),
-  ],
-  // Add esbuild configuration to properly handle JSX in .js files
-  esbuild: {
-    jsx: 'automatic'
-  },
-  resolve: {
-    extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
-    alias: {
-      '~': '/Users/elhosseyn/Downloads/trackprofit/app'
-    }
-  },
-  // Add configuration for handling JSX
-  optimizeDeps: {
-    include: ['react', 'react-dom'],
-    esbuildOptions: {
-      loader: {
-        '.js': 'jsx',
-        '.jsx': 'jsx'
+    },
+    optimizeDeps: {
+      include: ['react', 'react-dom'],
+      esbuildOptions: {
+        loader: {
+          '.js': 'jsx',
+          '.jsx': 'jsx'
+        }
       }
-    }
-  },
-  server: {
-    hmr: hmrConfig,
-    port: process.env.PORT || 3000,
-    fs: {
-      // Allow serving files from one level up to the project root
-      allow: ['..']
-    }
-  },
-  publicDir: "public",
-  appType: "custom"
+    },
+    server: {
+      hmr: hmrConfig,
+      port: process.env.PORT || 3000,
+      fs: {
+        allow: ['..']
+      }
+    },
+    publicDir: "public",
+    appType: "custom"
+  };
 });
