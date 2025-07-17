@@ -143,6 +143,8 @@ export const ar = {
   dashboard: {
     title: 'لوحة تحكم الأرباح',
     subtitle: 'تتبع أرباحك ومبيعاتك وأداء إعلاناتك في مكان واحد',
+    mainTitle: 'لوحة تحكم الأرباح',
+    mainSubtitle: 'تتبع أرباحك ومبيعاتك وأداء إعلاناتك في مكان واحد',
     dateRange: 'الفترة الزمنية',
     facebookAccount: 'حساب فيسبوك للإعلانات',
     selectAccount: 'اختر حساب الإعلانات',
@@ -182,10 +184,32 @@ export const ar = {
       cpmSubtitle: 'تكلفة الألف ظهور (CPM)',
       conversionRate: 'نسبة التحويل',
       conversionRateSubtitle: 'من المشاهدات إلى الشراء',
+      // Added for FacebookMetrics dashboard cards
+      dashboard: {
+        roas: 'عائد الإعلان (ROAS)',
+        netRoas: 'العائد الصافي (Net ROAS)',
+        netRoasSubtitle: 'بعد خصم تكلفة البضاعة',
+        mer: 'كفاءة التسويق (MER)',
+        adSpend: 'مصروف الإعلانات',
+        adRevenue: 'إيراد الإعلانات',
+        purchases: 'عدد المشتريات',
+        impressions: 'عدد المشاهدات',
+        costPerPurchase: 'تكلفة الشراء',
+        costPerPurchaseSubtitle: 'متوسط تكلفة الشراء الواحد',
+        cpm: 'تكلفة المشاهدة',
+        cpmSubtitle: 'تكلفة الألف ظهور (CPM)',
+        conversionRate: 'نسبة التحويل',
+        conversionRateSubtitle: 'من المشاهدات إلى الشراء',
+      }
     },
     selectAccount: 'قم باختيار حساب فيسبوك للإعلانات',
     selectAccountDesc: 'اختر حساب فيسبوك للإعلانات من القائمة المنسدلة أعلاه لعرض بيانات الأداء',
     chooseAccount: 'اختر حساب',
+    metricsBanner: {
+      title: 'قم باختيار حساب فيسبوك للإعلانات',
+      action: 'اختر حساب',
+      description: 'اختر حساب فيسبوك للإعلانات من القائمة المنسدلة أعلاه لعرض بيانات الأداء',
+    },
     pageTitle: 'تحليلات إعلانات فيسبوك - TrackProfit',
     description: 'تتبع وحلل أداء حملات إعلانات فيسبوك، العائد على الاستثمار، والمقاييس في الوقت الحقيقي.',
     
@@ -549,6 +573,7 @@ export const ar = {
     commune: '🏙️ البلدية',
     status: '📊 الحالة',
     amount: '💰 المبلغ',
+    note: 'ملاحظة',
     totalShipments: '📊 إجمالي الشحنات: {{count}}',
     page: '| الصفحة {{currentPage}} من {{totalPages}}',
     
@@ -755,6 +780,8 @@ export const en = {
   dashboard: {
     title: 'Profit Dashboard',
     subtitle: 'Track your profits, sales, and ad performance in one place',
+    mainTitle: 'Profit Dashboard',
+    mainSubtitle: 'Track your profits, sales, and ad performance in one place',
     dateRange: 'Date Range',
     facebookAccount: 'Facebook Ad Account',
     selectAccount: 'Select Ad Account',
@@ -779,6 +806,11 @@ export const en = {
   facebook: {
     title: 'Facebook Ad Center',
     pageTitle: 'Facebook Ads Analytics - TrackProfit',
+    metricsBanner: {
+      title: 'Select a Facebook Ad Account',
+      action: 'Select Account',
+      description: 'Select a Facebook ad account from the dropdown above to view performance data',
+    },
     description: 'Track and analyze your Facebook ad campaigns performance, ROI, and metrics in real-time.',
     
     // Connection Status
@@ -807,6 +839,25 @@ export const en = {
     purchases: 'Purchases',
     impressions: 'Impressions',
     costPerPurchase: 'Cost per Purchase',
+    // Added for FacebookMetrics dashboard cards
+    metrics: {
+      dashboard: {
+        roas: 'Ad ROAS',
+        netRoas: 'Net ROAS',
+        netRoasSubtitle: 'After deducting COGS',
+        mer: 'Marketing Efficiency Ratio (MER)',
+        adSpend: 'Ad Spend',
+        adRevenue: 'Ad Revenue',
+        purchases: 'Purchases',
+        impressions: 'Impressions',
+        costPerPurchase: 'Cost per Purchase',
+        costPerPurchaseSubtitle: 'Average cost per purchase',
+        cpm: 'View Cost',
+        cpmSubtitle: 'Cost per 1,000 Impressions (CPM)',
+        conversionRate: 'Conversion Rate',
+        conversionRateSubtitle: 'From impressions to purchases',
+      }
+    },
     
     // Campaign Table
     campaign: 'Campaign',
@@ -1146,6 +1197,7 @@ export const en = {
     commune: '🏙️ Commune',
     status: '📊 Status',
     amount: '💰 Amount',
+    note: 'Note',
     totalShipments: '📊 Total Shipments: {{count}} | Page {{currentPage}} of {{totalPages}}',
     page: 'Page {{currentPage}} of {{totalPages}}',
 

@@ -27,13 +27,14 @@ import {
   Divider,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
+import XLSX from "xlsx";
 import prisma from "../db.server";
 import { zrexpress } from "../services/zrexpress.server.js";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { useLanguage } from "../utils/i18n/LanguageContext.jsx";
 
 // Lazy load heavy dependencies for client-side only
-const XLSX = lazy(() => import('xlsx'));
+const LazyXLSX = lazy(() => import('xlsx'));
 
 
 // Lazy load components with automatic retry on failure
@@ -135,39 +136,23 @@ export const loader = async ({ request }) => {
     // Check if credentials exist in a single query
     const credentials = await prisma.ZRExpressCredential.findUnique({
       where: { shop: session.shop },
-      select: { token: true, key: true } // Only select needed fields
+      select: { token: true, key: true }
     });
 
     if (!credentials) {
       return json(initialResponse, {
         headers: {
-          "Cache-Control": "private, max-age=10" // Cache for 10 seconds
+          "Cache-Control": "private, max-age=10"
         }
       });
     }
 
-    // Update response with credentials status
     initialResponse.hasCredentials = true;
+    initialResponse.isConnected = true;
 
+    // Fetch cities/tarification from API (optional, can be cached)
     try {
-      // Validate credentials and fetch initial data in parallel
-      const [validationResult, tarificationData] = await Promise.all([
-        zrexpress.validateCredentials(credentials.token, credentials.key),
-        zrexpress.getTarification(credentials.token, credentials.key).catch(() => [])
-      ]);
-
-      initialResponse.isConnected = validationResult.success;
-
-      if (!validationResult.success) {
-        initialResponse.connectionError = "Invalid credentials";
-        return json(initialResponse, {
-          headers: {
-            "Cache-Control": "private, max-age=30"
-          }
-        });
-      }
-
-      // Process cities data
+      const tarificationData = await zrexpress.getTarification(credentials.token, credentials.key).catch(() => []);
       if (Array.isArray(tarificationData) && tarificationData.length > 0) {
         initialResponse.cities = tarificationData
           .filter(item => item.Domicile !== "0" || item.Stopdesk !== "0")
@@ -182,86 +167,110 @@ export const loader = async ({ request }) => {
           }))
           .sort((a, b) => parseInt(a.value) - parseInt(b.value));
       }
-      
-      // Fetch shipment data
-      const shipments = await zrexpress.getShipmentStatuses(
-        credentials.token, 
-        credentials.key, 
-        [], 
-        session.shop
-      ).catch(() => []);
-      
-      if (Array.isArray(shipments) && shipments.length > 0) {
-        // Calculate stats efficiently
-        const stats = shipments.reduce((acc, shipment) => {
-          const totalAmount = parseFloat(shipment.total || 0);
-          const deliveryFee = parseFloat(shipment.deliveryFee || 0);
-          const cancelFee = parseFloat(shipment.cancelFee || 0);
-          const status = (shipment.status || "").trim();
+    } catch (err) {
+      // Ignore city fetch errors
+    }
 
-          if ( status === "Livrée" ) {
-            acc.grossAmount += totalAmount;
-            acc.totalShippingAndCancel += deliveryFee;
-            acc.netRevenue += totalAmount - deliveryFee;
-            acc.totalShippingAndCancel += cancelFee;
-            acc.deliveredCount++;
-          } 
-          else if (status === "En Préparation") {
-            acc.inPreparationCount++;
-          } 
-          else if (status.includes("Router") || status === "Retour Expéditeur" || status === "Annuler") {
-            acc.totalShippingAndCancel += cancelFee;
-            acc.inTransitCount++;
-          }
-          return acc;
-        }, {
-          grossAmount: 0,
-          totalShippingAndCancel: 0,
-          netRevenue: 0,
-          deliveredCount: 0,
-          inPreparationCount: 0,
-          inTransitCount: 0,
-        });
 
-        initialResponse.stats = {
-          grossAmount: Number(stats.grossAmount.toFixed(2)),
-          totalShippingAndCancel: Number(stats.totalShippingAndCancel.toFixed(2)),
-          netRevenue: Number(stats.netRevenue.toFixed(2)),
-          deliveredCount: stats.deliveredCount,
-          inPreparationCount: stats.inPreparationCount,
-          inTransitCount: stats.inTransitCount
-        };
+    // Fetch recent tracking numbers from DB for this shop
+    const recentShipments = await prisma.Shipment.findMany({
+      where: { shop: session.shop },
+      orderBy: { updatedAt: 'desc' },
+      take: 50 // Limit to last 50 shipments for performance
+    });
 
-        // Format shipping data efficiently
-        initialResponse.shippingData = shipments.map(shipment => {
-          const updatedAt = new Date(shipment.updatedAt);
-          return [
-            updatedAt.toLocaleDateString('fr-FR'),
-            shipment.tracking,
-            shipment.client,
-            shipment.mobileA,
-            shipment.mobileB || '',
-            shipment.wilaya,
-            shipment.commune,
-            shipment.status,
-            `${shipment.total} دج`
-          ];
-        });
+    const trackingNumbers = recentShipments.map(s => s.tracking).filter(Boolean);
+    // Map tracking numbers to their dates (for table display)
+    const trackingDates = new Map();
+    recentShipments.forEach(s => {
+      if (s.tracking) {
+        // Use updatedAt or createdAt for date
+        const date = s.updatedAt ? new Date(s.updatedAt).toLocaleDateString('fr-FR') : (s.createdAt ? new Date(s.createdAt).toLocaleDateString('fr-FR') : "");
+        trackingDates.set(s.tracking, date);
       }
-      
-      return json(initialResponse, {
-        headers: {
-          "Cache-Control": "private, max-age=30" // Cache for 30 seconds
+    });
+
+    // Fetch shipment statuses from ZRExpress API
+    let shipments = [];
+    try {
+      shipments = await zrexpress.getShipmentStatuses(
+        credentials.token,
+        credentials.key,
+        trackingNumbers,
+        session.shop,
+        trackingDates
+      );
+    } catch (err) {
+      // If API fails, fallback to empty array
+      shipments = [];
+    }
+
+    // Calculate stats from API shipments
+    if (Array.isArray(shipments) && shipments.length > 0) {
+      const stats = shipments.reduce((acc, shipment) => {
+        const totalAmount = parseFloat(shipment.total || 0);
+        const deliveryFee = parseFloat(shipment.deliveryFee || 0);
+        const cancelFee = parseFloat(shipment.cancelFee || 0);
+        const status = (shipment.status || "").trim();
+
+        if (status === "Livrée") {
+          acc.grossAmount += totalAmount;
+          acc.totalShippingAndCancel += deliveryFee;
+          acc.totalShippingAndCancel += cancelFee;
+          acc.deliveredCount++;
+          // Net profit: subtract delivery fee and total cost (COGS) from total amount
+          const totalCost = parseFloat(shipment.totalCost || 0);
+          acc.netRevenue += totalAmount - deliveryFee - totalCost;
+        } else if (status === "En Préparation") {
+          acc.inPreparationCount++;
+        } else if (status.includes("Router") || status === "Retour Expéditeur" || status === "Annuler") {
+          acc.totalShippingAndCancel += cancelFee;
+          acc.inTransitCount++;
         }
+        return acc;
+      }, {
+        grossAmount: 0,
+        totalShippingAndCancel: 0,
+        netRevenue: 0,
+        deliveredCount: 0,
+        inPreparationCount: 0,
+        inTransitCount: 0,
       });
-    } catch (validationError) {
-      initialResponse.connectionError = "Error validating credentials";
-      return json(initialResponse, {
-        headers: {
-          "Cache-Control": "private, max-age=30"
-        }
+
+      initialResponse.stats = {
+        grossAmount: Number(stats.grossAmount.toFixed(2)),
+        totalShippingAndCancel: Number(stats.totalShippingAndCancel.toFixed(2)),
+        netRevenue: Number(stats.netRevenue.toFixed(2)),
+        deliveredCount: stats.deliveredCount,
+        inPreparationCount: stats.inPreparationCount,
+        inTransitCount: stats.inTransitCount
+      };
+
+      // Format shipping data for table
+      initialResponse.shippingData = shipments.map(shipment => {
+        // Use trackingDates if available, else fallback to shipment.createdAt
+        const date = trackingDates.get(shipment.tracking) || (shipment.createdAt ? new Date(shipment.createdAt).toLocaleDateString('fr-FR') : "");
+        return [
+          date, // Date
+          shipment.tracking, // Tracking
+          shipment.client, // Client
+          shipment.mobileA, // Phone 1
+          shipment.mobileB || '', // Phone 2
+          shipment.wilaya, // Wilaya
+          shipment.commune, // Commune
+          shipment.status, // Status
+          `${shipment.total} دج`, // Amount
+          shipment.productType || '', // Product
+          shipment.note || '', // Note
+        ];
       });
     }
+
+    return json(initialResponse, {
+      headers: {
+        "Cache-Control": "private, max-age=30"
+      }
+    });
   } catch (error) {
     console.error("ZRExpress loader error:", error);
     return json({ 
@@ -492,6 +501,62 @@ export const action = async ({ request }) => {
   });
         }
 
+        // Save each shipment to the database
+        for (const shipment of result) {
+          try {
+            await prisma.Shipment.upsert({
+              where: { tracking: shipment.tracking },
+              update: {
+                shop: session.shop,
+                client: shipment.client,
+                mobileA: shipment.mobileA,
+                mobileB: shipment.mobileB,
+                address: shipment.address,
+                wilaya: shipment.wilaya,
+                commune: shipment.commune,
+                total: shipment.total,
+                note: shipment.note,
+                productType: shipment.productType,
+                deliveryType: shipment.deliveryType || 0,
+                packageType: shipment.packageType || 0,
+                status: shipment.status,
+                externalId: shipment.externalId,
+                deliveryFee: shipment.deliveryFee || 0,
+                cancelFee: shipment.cancelFee || 0,
+                orderId: shipment.orderId || null,
+                totalCost: shipment.totalCost || null,
+                totalRevenue: shipment.totalRevenue || null,
+                profit: shipment.profit || null,
+              },
+              create: {
+                shop: session.shop,
+                tracking: shipment.tracking,
+                client: shipment.client,
+                mobileA: shipment.mobileA,
+                mobileB: shipment.mobileB,
+                address: shipment.address,
+                wilaya: shipment.wilaya,
+                commune: shipment.commune,
+                total: shipment.total,
+                note: shipment.note,
+                productType: shipment.productType,
+                deliveryType: shipment.deliveryType || 0,
+                packageType: shipment.packageType || 0,
+                status: shipment.status,
+                externalId: shipment.externalId,
+                deliveryFee: shipment.deliveryFee || 0,
+                cancelFee: shipment.cancelFee || 0,
+                orderId: shipment.orderId || null,
+                totalCost: shipment.totalCost || null,
+                totalRevenue: shipment.totalRevenue || null,
+                profit: shipment.profit || null,
+              }
+            });
+          } catch (dbError) {
+            console.error('Error saving shipment:', dbError, shipment.tracking);
+          }
+        }
+
         const exportData = result.map(shipment => ({
           'Date': trackingDates.get(shipment.tracking) || new Date(shipment.createdAt).toLocaleDateString('fr-FR'),
           'Tracking': shipment.tracking,
@@ -511,10 +576,10 @@ export const action = async ({ request }) => {
         }));
 
         return json({ success: true, data: result, exportData: exportData, shop: session.shop }, {
-    headers: {
-      "Cache-Control": "private, max-age=30"
-    }
-  });
+          headers: {
+            "Cache-Control": "private, max-age=30"
+          }
+        });
       } catch (error) {
         console.error('File processing error:', error);
         return json({ success: false, error: `Error processing file: ${error.message}`}, {
@@ -746,7 +811,10 @@ export default function ZRExpressManagement() {
     t('zrExpress.wilaya'),
     t('zrExpress.commune'),
     t('zrExpress.status'),
-    t('zrExpress.amount')
+    t('zrExpress.amount'),
+    t('zrExpress.productType'),
+    t('zrExpress.note'),
+
   ], [t]);
 
   useEffect(() => {
@@ -756,16 +824,21 @@ export default function ZRExpressManagement() {
           content: t('zrExpress.dataUpdatedSuccess'),
           error: false
         });
+        setConnectionError(null); // Clear error on success
         if (actionData.exportData) {
           setExportData(actionData.exportData);
         }
         setIsUploading(false);
+        setShowCredentialsModal(false); // Close modal on success
+        setToken("");
+        setKey("");
         navigate(".", { replace: true });
       } else if (actionData.error) {
         setToastMessage({
           content: actionData.error,
           error: true
         });
+        setConnectionError(actionData.error); // Show error in banner
         setIsUploading(false);
       }
       setShowToast(true);
@@ -1036,10 +1109,9 @@ export default function ZRExpressManagement() {
         }
         
         const formData = new FormData();
-        formData.append("action", "processExcel");
-        formData.append("excelData", JSON.stringify(excelData));
-        
-        submit(formData, { method: "post" });
+        formData.append("action", "uploadExcel");
+        formData.append("file", file);
+        submit(formData, { method: "post", encType: "multipart/form-data" });
       } catch (error) {
         console.error("Error processing Excel file:", error);
         setToastMessage({
@@ -1119,12 +1191,31 @@ export default function ZRExpressManagement() {
       );
     }
     
+    // Map status to badge color
+    const getStatusBadge = (status) => {
+      const s = (status || '').trim();
+      if (s === 'Livrée') return <Badge tone="success">{s}</Badge>;
+      if (s === 'En Préparation') return <Badge tone="warning">{s}</Badge>;
+      if (s === 'Supprimée') return <Badge tone="critical">{s}</Badge>;
+      if (s === 'Annuler') return <Badge tone="critical">{s}</Badge>;
+      if (s.includes('Router') || s === 'Retour Expéditeur') return <Badge tone="info">{s}</Badge>;
+      return <Badge>{s}</Badge>;
+    };
+
+    // Replace status column with badge in each row
+    const rowsWithStatusBadge = currentPageData.map(row => {
+      const newRow = [...row];
+      // Status is column 7
+      newRow[7] = getStatusBadge(row[7]);
+      return newRow;
+    });
+
     return (
       <div style={{ overflowX: 'auto' }}>
         <DataTable
-          columnContentTypes={Array(9).fill('text')}
+          columnContentTypes={Array(tableHeaders.length).fill('text')}
           headings={tableHeaders}
-          rows={currentPageData}
+          rows={rowsWithStatusBadge}
           truncate
           footerContent={t('zrExpress.totalShipments', { 
             count: filteredData.length, 
@@ -1342,7 +1433,7 @@ export default function ZRExpressManagement() {
           </Layout.Section>
 
           {/* Connection Error Banner */}
-          {connectionError && (
+          {!isConnected && connectionError && (
             <Layout.Section>
               <Banner status="critical" title={t('zrExpress.connectionError')} onDismiss={() => setConnectionError(null)}>
                 <p>{connectionError}</p>
@@ -1533,11 +1624,15 @@ export default function ZRExpressManagement() {
                     { label: t('zrExpress.selectCommune'), value: '' },
                     ...filteredCommunes.map(commune => ({ 
                       label: commune.commune_name_ascii, 
-                      value: commune.commune_name_ascii 
+                      value: String(commune.id) // Use unique id for value
                     }))
                   ]}
                   value={newShipment.Commune}
-                  onChange={(v) => setNewShipment({ ...newShipment, Commune: v })}
+                  onChange={(v) => {
+                    // Find selected commune by id and set name
+                    const selectedCommune = filteredCommunes.find(c => String(c.id) === v);
+                    setNewShipment({ ...newShipment, Commune: selectedCommune ? selectedCommune.commune_name_ascii : v });
+                  }}
                   required
                   disabled={isLoading || !newShipment.IDWilaya || filteredCommunes.length === 0}
                   placeholder={filteredCommunes.length === 0 ? t('zrExpress.selectWilayaFirst') : t('zrExpress.selectCommune')}

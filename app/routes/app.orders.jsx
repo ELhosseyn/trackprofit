@@ -198,8 +198,8 @@ export const action = async ({ request }) => {
 };
 
 export default function Orders() {
-  const initialData = useLoaderData();
-  const [data, setData] = useState(initialData);
+const initialData = useLoaderData();
+const [data, setData] = useState(initialData);
   const navigation = useNavigation();
   const isLoading = navigation.state === "loading";
   const fetcher = useFetcher();
@@ -343,19 +343,41 @@ export default function Orders() {
     setCurrentPage(1);
 
     let totalOrders = 0, totalRevenue = 0, totalCost = 0, totalProfit = 0;
+    let totalShippingFee = 0, totalCancelFee = 0;
     filtered.forEach(({ node }) => {
       if (node.displayFinancialStatus) {
         totalOrders++;
         const orderAmount = parseFloat(node.totalPriceSet?.shopMoney?.amount || 0);
         totalRevenue += orderAmount;
-        
+
         let orderCost = 0;
         node.lineItems?.edges.forEach(({ node: item }) => {
           const quantity = item.quantity || 1;
           const costPerItem = parseFloat(item.variant?.inventoryItem?.unitCost?.amount || 0);
           orderCost += (costPerItem * quantity);
         });
-        
+
+        // Aggregate shippingFee and cancelFee from note_attributes or shipment data if available
+        if (Array.isArray(node.note_attributes)) {
+          const shippingFeeAttr = node.note_attributes.find(attr => attr.name.toLowerCase().includes('shippingfee') || attr.name.toLowerCase().includes('deliveryfee'));
+          const cancelFeeAttr = node.note_attributes.find(attr => attr.name.toLowerCase().includes('cancelfee'));
+          if (shippingFeeAttr && shippingFeeAttr.value) {
+            totalShippingFee += parseFloat(shippingFeeAttr.value) || 0;
+          }
+          if (cancelFeeAttr && cancelFeeAttr.value) {
+            totalCancelFee += parseFloat(cancelFeeAttr.value) || 0;
+          }
+        }
+        // If shipment data is available, aggregate from there as well
+        if (node.shipment_status && node.tracking_info) {
+          if (typeof node.tracking_info.deliveryFee !== 'undefined') {
+            totalShippingFee += parseFloat(node.tracking_info.deliveryFee) || 0;
+          }
+          if (typeof node.tracking_info.cancelFee !== 'undefined') {
+            totalCancelFee += parseFloat(node.tracking_info.cancelFee) || 0;
+          }
+        }
+
         totalCost += orderCost;
         totalProfit += (orderAmount - orderCost);
       }
@@ -367,7 +389,10 @@ export default function Orders() {
       totalCost: Number(totalCost.toFixed(2)),
       totalProfit: Number(totalProfit.toFixed(2)),
       avgOrderValue: totalOrders > 0 ? Number((totalRevenue / totalOrders).toFixed(2)) : 0,
-      avgProfit: totalOrders > 0 ? Number((totalProfit / totalOrders).toFixed(2)) : 0
+      avgProfit: totalOrders > 0 ? Number((totalProfit / totalOrders).toFixed(2)) : 0,
+      totalShippingFee: Number(totalShippingFee.toFixed(2)),
+      totalCancelFee: Number(totalCancelFee.toFixed(2)),
+      totalShippingAndCancelFee: Number((totalShippingFee + totalCancelFee).toFixed(2))
     });
   }, [selectedDates, data.orders, filterOrdersByDateRange]);
 
@@ -410,7 +435,7 @@ export default function Orders() {
     let commune = "";
 
     const normalizedCities = data.cities?.map(city => ({ ...city, normalizedValue: city.value.toString().padStart(2, '0') }));
-    const cityRegex = /^(\d+)\s*-\s*(.+?)(?:\s+[\u0600-\u06FF]+)?$/;
+    const cityRegex = /^([\d]+)\s*-\s*(.+?)(?:\s+[\u0600-\u06FF]+)?$/;
     const cityMatch = rawCity.match(cityRegex);
 
     if (cityMatch) {
@@ -424,7 +449,7 @@ export default function Orders() {
         wilayaName = matchedCity.label;
         commune = rawCommune || rawProvince || rawCity || '';
       } else {
-        const extractWilayaId = (str) => str?.match(/^(\d+)/)?.[1] || null;
+        const extractWilayaId = (str) => str?.match(/^([\d]+)/)?.[1] || null;
         const cityWilayaId = extractWilayaId(rawCity);
         const provinceWilayaId = extractWilayaId(rawProvince);
         const paddedCityWilayaId = cityWilayaId ? cityWilayaId.padStart(2, '0') : null;
@@ -438,18 +463,86 @@ export default function Orders() {
       }
     }
 
-    if (commune && commune.toLowerCase().includes(wilayaName.toLowerCase())) commune = '';
+    // Prioritize Region note attribute for commune selection
     const paddedWilayaId = wilayaId ? wilayaId.padStart(2, '0') : '';
     const availableCommunes = communesData?.filter(item => item?.wilaya_code === paddedWilayaId) || [];
-    if (commune && availableCommunes.length > 0) {
-      const communeWords = commune.toLowerCase().split(/\s+/).filter(word => word.length > 1);
-      let matchedCommune = availableCommunes.find(item => item.commune_name_ascii.toLowerCase() === commune.toLowerCase() || item.commune_name.toLowerCase() === commune.toLowerCase());
-      if (!matchedCommune && communeWords.length > 0) {
-        const scoredCommunes = availableCommunes.map(item => ({ item, matchCount: communeWords.filter(word => item.commune_name_ascii.toLowerCase().includes(word)).length }));
-        scoredCommunes.sort((a, b) => b.matchCount - a.matchCount);
-        if (scoredCommunes.length > 0 && scoredCommunes[0].matchCount > 0) matchedCommune = scoredCommunes[0].item;
+    const regionCommune = findNoteAttribute(['Region']);
+    if (regionCommune) {
+      // Try to match regionCommune to availableCommunes
+      let matchedCommune = availableCommunes.find(item =>
+        (item.commune_name_ascii && item.commune_name_ascii === regionCommune) ||
+        (item.commune_name && item.commune_name === regionCommune)
+      );
+      if (!matchedCommune) {
+        // Try case-insensitive match
+        matchedCommune = availableCommunes.find(item =>
+          (item.commune_name_ascii && item.commune_name_ascii.toLowerCase() === regionCommune.toLowerCase()) ||
+          (item.commune_name && item.commune_name.toLowerCase() === regionCommune.toLowerCase())
+        );
       }
-      if (matchedCommune) commune = matchedCommune.commune_name_ascii || matchedCommune.commune_name;
+      if (!matchedCommune) {
+        // Try partial match
+        matchedCommune = availableCommunes.find(item =>
+          (item.commune_name_ascii && item.commune_name_ascii.includes(regionCommune)) ||
+          (item.commune_name && item.commune_name.includes(regionCommune))
+        );
+      }
+      commune = matchedCommune ? (matchedCommune.commune_name_ascii || matchedCommune.commune_name) : regionCommune;
+    } else {
+      if (commune && commune.toLowerCase().includes(wilayaName.toLowerCase())) commune = '';
+      let matchedCommune = null;
+      // Normalize city if it matches pattern like '32- البيض'
+      let normalizedCity = rawCity;
+      const cityNumMatch = rawCity.match(/^([\d]+)[-\s]+(.+)$/);
+      if (cityNumMatch) {
+        normalizedCity = cityNumMatch[2].trim();
+      }
+      if (availableCommunes.length > 0) {
+        // Try exact match (ascii or arabic)
+        if (commune) {
+          matchedCommune = availableCommunes.find(item =>
+            (item.commune_name_ascii && item.commune_name_ascii.toLowerCase() === commune.toLowerCase()) ||
+            (item.commune_name && item.commune_name.toLowerCase() === commune.toLowerCase())
+          );
+        }
+        // Try partial/fuzzy match if not found or commune is empty
+        if (!matchedCommune && commune && commune.length > 1) {
+          const communeWords = commune.toLowerCase().split(/\s+/).filter(word => word.length > 1);
+          const scoredCommunes = availableCommunes.map(item => {
+            const ascii = item.commune_name_ascii ? item.commune_name_ascii.toLowerCase() : '';
+            const arabic = item.commune_name ? item.commune_name.toLowerCase() : '';
+            const matchCount = communeWords.filter(word => ascii.includes(word) || arabic.includes(word)).length;
+            return { item, matchCount };
+          });
+          scoredCommunes.sort((a, b) => b.matchCount - a.matchCount);
+          if (scoredCommunes.length > 0 && scoredCommunes[0].matchCount > 0) {
+            matchedCommune = scoredCommunes[0].item;
+          }
+        }
+        // If still not matched, try to match by city/province if commune is empty
+        if (!matchedCommune && (!commune || commune.trim() === '')) {
+          // Try to match by province/city, including normalized city
+          const possibleNames = [rawCommune, rawProvince, rawCity, normalizedCity].map(x => x && x.toLowerCase().trim()).filter(Boolean);
+          matchedCommune = availableCommunes.find(item =>
+            possibleNames.some(name =>
+              (item.commune_name_ascii && item.commune_name_ascii.toLowerCase() === name) ||
+              (item.commune_name && item.commune_name.toLowerCase() === name)
+            )
+          );
+        }
+        // If still not matched, try to match by partial city/province
+        if (!matchedCommune && (!commune || commune.trim() === '')) {
+          const possibleNames = [rawCommune, rawProvince, rawCity, normalizedCity].map(x => x && x.toLowerCase().trim()).filter(Boolean);
+          matchedCommune = availableCommunes.find(item =>
+            possibleNames.some(name =>
+              (item.commune_name_ascii && item.commune_name_ascii.toLowerCase().includes(name)) ||
+              (item.commune_name && item.commune_name.toLowerCase().includes(name))
+            )
+          );
+        }
+      }
+      // If no match, set commune to empty string (forces UI to show 'Select commune')
+      commune = matchedCommune ? (matchedCommune.commune_name_ascii || matchedCommune.commune_name) : '';
     }
     
     let fullAddress = [address1, address2].filter(Boolean).join(", ");
@@ -619,14 +712,18 @@ export default function Orders() {
                       let wilaya = findNoteAttribute(['wilaya الولاية', 'province (state)', 'city']) || node.shipping_address?.city || '';
                       const cityMatch = wilaya.match(/^(\d+)\s*-\s*([^-]+?)(?:\s+[\u0600-\u06FF]+)?$/);
                       if (cityMatch) wilaya = cityMatch[2].trim();
-                      const municipality = findNoteAttribute(['province', 'province (state)']) || node.shipping_address?.province || '-';
+                      // City (Commune/Region)
+                      let city = findNoteAttribute(['Region', 'Commune', 'Province']) || node.shipping_address?.province || '-';
+                      // Special case: if wilaya and city are the same, but Region exists, use Region
+                      if (wilaya && city && wilaya === city) {
+                        const region = findNoteAttribute(['Region']);
+                        if (region) city = region;
+                      }
                       const amount = parseFloat(node.totalPriceSet?.shopMoney?.amount || 0);
-                      
                       // ✅ FIX: Use dynamic currency in data table.
                       const currency = node.totalPriceSet?.shopMoney?.currencyCode || currencyCode;
-                      
                       return [
-                        formatDate(node.createdAt), node.name, formatCurrency(amount, false, currency), customerName, phone1, phone2, wilaya, municipality,
+                        formatDate(node.createdAt), node.name, formatCurrency(amount, false, currency), customerName, phone1, phone2, wilaya, city,
                         <Badge tone={node.displayFinancialStatus === 'PAID' ? 'success' : 'warning'}>{node.displayFinancialStatus}</Badge>,
                         node.shipment_status ? <Badge tone="success">📦 {node.shipment_status}</Badge> : <Button size="slim" onClick={() => handleOrderSelect(node)}>{t('orders.createShipmentButton')}</Button>
                       ];
@@ -662,32 +759,16 @@ export default function Orders() {
                     // ✅ FIX: Use dynamic currency in modal summary.
                     const currency = node.originalTotalSet?.shopMoney?.currencyCode || currencyCode;
                     
-                    return (<InlineStack key={index} align="space-between" blockAlign="center">
-                      <Text variant="bodyMd">{node.title} (x{quantity})</Text>
-                      <InlineStack gap="200">
-                        <Text variant="bodyMd" tone="subdued">{t('orders.stats.totalCost')}: {formatCurrency(unitCost * quantity, false, currency)}</Text>
-                        <Text variant="bodyMd" tone={itemProfit >= 0 ? "success" : "critical"}>{t('orders.stats.totalProfit')}: {formatCurrency(itemProfit, itemProfit < 0, currency)} ({itemMargin.toFixed(1)}%)</Text>
+                    return (
+                      <InlineStack key={index} align="space-between" blockAlign="center">
+                        <Text variant="bodyMd">{node.title} (x{quantity})</Text>
+                        <InlineStack gap="200">
+                          <Text variant="bodyMd" tone="subdued">{t('orders.stats.totalCost')}: {formatCurrency(unitCost * quantity, false, currency)}</Text>
+                          <Text variant="bodyMd" tone={itemProfit >= 0 ? "success" : "critical"}>{t('orders.stats.totalProfit')}: {formatCurrency(itemProfit, itemProfit < 0, currency)} ({itemMargin.toFixed(1)}%)</Text>
+                        </InlineStack>
                       </InlineStack>
-                    </InlineStack>);
+                    );
                   })}
-                  {(() => {
-                    let totalCost = 0;
-                    selectedOrder.lineItems?.edges.forEach(({ node }) => { totalCost += (parseFloat(node.variant?.inventoryItem?.unitCost?.amount || 0) * (node.quantity || 1)); });
-                    const totalRevenue = parseFloat(shipmentForm.Total || 0);
-                    const profit = totalRevenue - totalCost;
-                    const margin = totalRevenue > 0 ? (profit / totalRevenue * 100) : 0;
-                    
-                    // ✅ FIX: Use dynamic currency in modal total summary.
-                    const currency = selectedOrder.totalPriceSet?.shopMoney?.currencyCode || currencyCode;
-                    
-                    return (<InlineStack align="space-between" blockAlign="center">
-                      <Text variant="headingSm" as="h4">{t('orders.totalSummary')}</Text>
-                      <InlineStack gap="200">
-                        <Text variant="headingSm" tone="subdued">{t('orders.cost')} {formatCurrency(totalCost, false, currency)}</Text>
-                        <Text variant="headingSm" tone={profit >= 0 ? "success" : "critical"}>{t('orders.profit')} {formatCurrency(profit, profit < 0, currency)} ({margin.toFixed(1)}%)</Text>
-                      </InlineStack>
-                    </InlineStack>);
-                  })()}
                 </BlockStack>
               </BlockStack></Box></Card>)}
               
@@ -702,32 +783,26 @@ export default function Orders() {
               </FormLayout.Group>
               <TextField label={t('orders.address')} value={shipmentForm.Adresse} onChange={(v) => setShipmentForm({...shipmentForm, Adresse: v})} autoComplete="off" multiline={3} requiredIndicator/>
               <FormLayout.Group>
-                <Select label={t('orders.wilaya')} options={data.cities} value={shipmentForm.IDWilaya} onChange={(v) => {
-                  const normV = v ? parseInt(v).toString() : "";
-                  const selCity = data.cities.find(c => parseInt(c.value).toString() === normV);
-                  const wCode = normV.padStart(2, '0');
-                  const availCom = communesData.filter(c => c.wilaya_code === wCode);
-                  let matchCom = "";
-                  if (selectedOrder && availCom.length > 0) {
-                    const findAttr = (names, def = "") => {
-                      if(!Array.isArray(names)) names=[names];
-                      for(const name of names){ const attr = (selectedOrder.note_attributes||[]).find(a=>a.name.toLowerCase()===name.toLowerCase()); if(attr&&attr.value)return attr.value;}
-                      return def;
-                    }
-                    const rawCom = findAttr(['Commune','City'], selectedOrder.shipping_address?.province || selectedOrder.shipping_address?.city || '');
-                    if(rawCom){
-                      const comWords = rawCom.toLowerCase().split(/\s+/).filter(w=>w.length>1);
-                      let match = availCom.find(i=>i.commune_name_ascii.toLowerCase()===rawCom.toLowerCase()||i.commune_name.toLowerCase()===rawCom.toLowerCase());
-                      if(!match && comWords.length > 0){
-                        const scored = availCom.map(i=>({i,c:comWords.filter(w=>i.commune_name_ascii.toLowerCase().includes(w)).length})).sort((a,b)=>b.c-a.c);
-                        if(scored.length > 0 && scored[0].c > 0) match = scored[0].i;
-                      }
-                      if(match) matchCom = match.commune_name_ascii || match.commune_name;
-                    }
-                  }
-                  setShipmentForm({...shipmentForm, IDWilaya: normV, Wilaya: selCity?selCity.label:"", Commune: matchCom});
-                }} requiredIndicator/>
-                <Select label={t('orders.commune')} value={shipmentForm.Commune} options={filteredCommunes.map(c => ({ label: c.commune_name_ascii, value: c.commune_name_ascii }))} onChange={(v) => setShipmentForm({...shipmentForm, Commune: v})} requiredIndicator disabled={!shipmentForm.IDWilaya || filteredCommunes.length === 0} placeholder={filteredCommunes.length === 0 ? t('orders.selectWilayaFirst') : t('orders.selectCommune')}/>
+                <Select
+                  label={t('orders.wilaya')}
+                  options={data.cities}
+                  value={shipmentForm.IDWilaya}
+                  onChange={v => {
+                    const normV = v ? parseInt(v).toString() : "";
+                    const selCity = data.cities.find(c => parseInt(c.value).toString() === normV);
+                    setShipmentForm({ ...shipmentForm, IDWilaya: normV, Wilaya: selCity ? selCity.label : "", Commune: "" });
+                  }}
+                  requiredIndicator
+                />
+                <Select
+                  label={t('orders.commune')}
+                  value={shipmentForm.Commune}
+                  options={filteredCommunes.map(c => ({ key: c.id || c.commune_name_ascii, label: c.commune_name_ascii, value: c.commune_name_ascii }))}
+                  onChange={v => setShipmentForm({ ...shipmentForm, Commune: v })}
+                  requiredIndicator
+                  disabled={!shipmentForm.IDWilaya || filteredCommunes.length === 0}
+                  placeholder={filteredCommunes.length === 0 ? t('orders.selectWilayaFirst') : t('orders.selectCommune')}
+                />
               </FormLayout.Group>
               <FormLayout.Group>
                 <Select label={t('orders.deliveryType')} options={deliveryTypes} value={shipmentForm.TypeLivraison} onChange={(v) => setShipmentForm({...shipmentForm, TypeLivraison: v})}/>

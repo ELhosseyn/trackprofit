@@ -1,3 +1,62 @@
+/**
+ * Fetches real daily spend for an ad account using Facebook Ads Insights API.
+ * @param {string} accessToken - Facebook access token
+ * @param {string} adAccountId - Ad account ID (e.g. 'act_123456789')
+ * @param {string} since - Start date (YYYY-MM-DD)
+ * @param {string} until - End date (YYYY-MM-DD)
+ * @returns {Promise<Array<{date: string, spend: number}>>}
+ */
+export async function getDailySpend(accessToken, adAccountId, since, until) {
+  try {
+    const url = `${FACEBOOK_GRAPH_URL}/${adAccountId}/insights?` + new URLSearchParams({
+      access_token: accessToken,
+      level: 'account',
+      fields: 'date_start,spend,impressions,actions,action_values',
+      time_range: JSON.stringify({ since, until }),
+      time_increment: '1',
+      limit: '100',
+    });
+    const response = await fetch(url);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'Failed to fetch daily insights');
+    }
+    const data = await response.json();
+    if (!data.data || !Array.isArray(data.data)) {
+      console.warn('Facebook API response missing data:', data);
+      return [];
+    }
+    // Debug: print raw API response
+    // Map to [{ date, spend, impressions, purchases, revenue }]
+    const parsed = data.data.map(day => {
+      // Find purchase actions and values
+      let purchases = 0;
+      let revenue = 0;
+      if (Array.isArray(day.actions)) {
+        const purchaseAction = day.actions.find(a => a.action_type === 'purchase');
+        purchases = purchaseAction ? parseInt(purchaseAction.value || '0', 10) : 0;
+      }
+      if (Array.isArray(day.action_values)) {
+        const purchaseValue = day.action_values.find(a => a.action_type === 'purchase');
+        revenue = purchaseValue ? parseFloat(purchaseValue.value || '0') : 0;
+      }
+      const result = {
+        date: day.date_start,
+        spend: parseFloat(day.spend || 0),
+        impressions: parseInt(day.impressions || '0', 10),
+        purchases,
+        revenue
+      };
+      // Debug: print parsed metrics for each day
+      console.log('Parsed Facebook metrics:', result);
+      return result;
+    });
+    return parsed;
+  } catch (error) {
+    console.error('Error fetching Facebook daily spend:', error);
+    return [];
+  }
+}
 const FACEBOOK_API_VERSION = 'v18.0';
 const FACEBOOK_GRAPH_URL = `https://graph.facebook.com/${FACEBOOK_API_VERSION}`;
 
@@ -42,39 +101,32 @@ export const facebook = {
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(today.getDate() - 1);
-
-    // Calculate the earliest allowed date (37 months ago)
     const maxHistoricalDate = new Date(today);
     maxHistoricalDate.setMonth(today.getMonth() - 37);
     maxHistoricalDate.setDate(1); // Set to first day of the month
     const earliestAllowedDate = maxHistoricalDate.toISOString().split('T')[0];
-
-    // Helper function to ensure date is not before earliest allowed date
+    const formatDate = (date) => date.toISOString().split('T')[0];
     const ensureValidDate = (date) => {
       const dateStr = date.toISOString().split('T')[0];
       return dateStr < earliestAllowedDate ? earliestAllowedDate : dateStr;
     };
-
-    // Helper function to format date to YYYY-MM-DD
-    const formatDate = (date) => date.toISOString().split('T')[0];
-
     switch (range) {
       case 'today':
         return {
-          since: today.toISOString().split('T')[0],
-          until: today.toISOString().split('T')[0]
+          since: formatDate(today),
+          until: formatDate(today)
         };
       case 'yesterday':
         return {
-          since: yesterday.toISOString().split('T')[0],
-          until: yesterday.toISOString().split('T')[0]
+          since: formatDate(yesterday),
+          until: formatDate(yesterday)
         };
       case 'last_7_days': {
         const start = new Date(today);
         start.setDate(today.getDate() - 7);
         return {
           since: ensureValidDate(start),
-          until: today.toISOString().split('T')[0]
+          until: formatDate(today)
         };
       }
       case 'last_30_days': {
@@ -82,14 +134,14 @@ export const facebook = {
         start.setDate(today.getDate() - 30);
         return {
           since: ensureValidDate(start),
-          until: today.toISOString().split('T')[0]
+          until: formatDate(today)
         };
       }
       case 'this_month': {
         const start = new Date(today.getFullYear(), today.getMonth(), 1);
         return {
           since: ensureValidDate(start),
-          until: today.toISOString().split('T')[0]
+          until: formatDate(today)
         };
       }
       case 'last_month': {
@@ -97,7 +149,7 @@ export const facebook = {
         const end = new Date(today.getFullYear(), today.getMonth(), 0);
         return {
           since: ensureValidDate(start),
-          until: end.toISOString().split('T')[0]
+          until: formatDate(end)
         };
       }
       case 'last_3_months': {
@@ -105,7 +157,7 @@ export const facebook = {
         start.setMonth(today.getMonth() - 3);
         return {
           since: ensureValidDate(start),
-          until: today.toISOString().split('T')[0]
+          until: formatDate(today)
         };
       }
       case 'last_6_months': {
@@ -113,14 +165,14 @@ export const facebook = {
         start.setMonth(today.getMonth() - 6);
         return {
           since: ensureValidDate(start),
-          until: today.toISOString().split('T')[0]
+          until: formatDate(today)
         };
       }
       case 'this_year': {
         const start = new Date(today.getFullYear(), 0, 1);
         return {
           since: ensureValidDate(start),
-          until: today.toISOString().split('T')[0]
+          until: formatDate(today)
         };
       }
       case 'last_year': {
@@ -128,7 +180,7 @@ export const facebook = {
         const end = new Date(today.getFullYear() - 1, 11, 31);
         return {
           since: ensureValidDate(start),
-          until: end.toISOString().split('T')[0]
+          until: formatDate(end)
         };
       }
       case 'max_range': {
@@ -302,7 +354,6 @@ export const facebook = {
         }
       };
     } catch (error) {
-      console.error('Failed to fetch campaigns:', error);
       throw error;
     }
   },
@@ -415,7 +466,6 @@ export const facebook = {
         name: name
       };
     } catch (error) {
-      console.error('Error creating campaign:', error);
       throw error;
     }
   }

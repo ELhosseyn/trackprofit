@@ -41,3 +41,4 @@ prisma.$connect()
   });
 export { prisma };
 export default prisma;
+export const db = prisma;

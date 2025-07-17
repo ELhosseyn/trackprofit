@@ -6,7 +6,7 @@ import { authenticate } from '../shopify.server';
 import { 
   getZRExpressCredentials,
   getZRExpressTarification
-} from '../features/shipping/services/shipping.service';
+} from '../services/shipping.service';
 
 export async function action({ request }) {
   const { session } = await authenticate.admin(request);

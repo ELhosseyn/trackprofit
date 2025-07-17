@@ -3,7 +3,7 @@ import { boundary } from "@shopify/shopify-app-remix/server";
 import { AppProvider } from "@shopify/shopify-app-remix/react";
 import { NavMenu } from "@shopify/app-bridge-react";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
-import { authenticate, MONTHLY_PLAN } from "../shopify.server";
+// Do not import server-only modules at the top level
 import { getSubscriptionStatus } from "../models/Subscription.server";
 import { Suspense, lazy } from 'react';
 import { Frame, Loading } from "@shopify/polaris";
@@ -13,8 +13,11 @@ import { redirect } from "@remix-run/node";
 
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
+
 export const loader = async ({ request }) => {
-  const { admin, billing, session } = await authenticate.admin(request);
+  // Import server-only modules inside the loader to avoid client bundle issues
+  const { authenticate } = await import("../shopify.server");
+  const { admin, session } = await authenticate.admin(request);
   const { shop } = session;
   let subscriptionError = false;
   let hasActiveSubscription = false;
@@ -24,34 +27,8 @@ export const loader = async ({ request }) => {
     const subscriptions = await getSubscriptionStatus(admin.graphql);
     const activeSubscriptions = subscriptions?.data?.app?.installation?.activeSubscriptions || [];
     hasActiveSubscription = activeSubscriptions.length > 0;
-
-    // Only require billing if this is not the billing page itself
-    const url = new URL(request.url);
-    const isBillingPage = url.pathname.includes('/billing');
-
-    if (!hasActiveSubscription && !isBillingPage) {
-      try {
-        await billing.require({
-          plans: [MONTHLY_PLAN],
-          isTest: false, // false in production
-          onFailure: async () => {
-            const billing_url = await billing.request({
-              plan: MONTHLY_PLAN,
-              isTest: false,
-              returnUrl: `https://${shop}/admin/apps/trackprofit-2/app/billing`,
-            });
-            throw redirect(billing_url);
-          },
-        });
-      } catch (billingError) {
-        if (billingError.status === 302) {
-          // This is a redirect, let it through
-          throw billingError;
-        }
-        console.error("Billing requirement error:", billingError);
-        subscriptionError = true;
-      }
-    }
+    // Managed Pricing: Do not require or create billing programmatically
+    // Just check subscription status and show UI
   } catch (error) {
     if (error.status === 302) {
       // This is a redirect, let it through
@@ -78,42 +55,33 @@ export default function App() {
 
   return (
     <AppProvider isEmbeddedApp apiKey={apiKey}>
-      {isLoading && (
-        <Frame>
-          <Loading />
-        </Frame>
-      )}
-      {/* {subscriptionError && (
-        <div style={{ 
-          backgroundColor: '#FFF4E5', 
-          color: '#D96800', 
-          padding: '12px', 
+      {/* إشعار الاشتراك غير النشط */}
+      {!hasActiveSubscription && (
+        <div style={{
+          backgroundColor: '#FFF4E5',
+          color: '#D96800',
+          padding: '14px',
           textAlign: 'center',
           position: 'sticky',
           top: 0,
           zIndex: 1001,
-          border: '1px solid #FFD79D'
+          border: '1px solid #FFD79D',
+          fontWeight: 600
         }}>
-          {t('errors.subscriptionAPIError', { fallback: 'There was an issue connecting to the Shopify API. Some features may be limited.' })}
-        </div>
-      )} */}
-      {!hasActiveSubscription && !subscriptionError && (
-        <div style={{ 
-          backgroundColor: '#F7F3FF', 
-          color: '#6B46C1', 
-          padding: '12px', 
-          textAlign: 'center',
-          position: 'sticky',
-          top: 0,
-          zIndex: 1001,
-          border: '1px solid #DDD6FE'
-        }}>
-          {t('subscription.trialMessage', { fallback: 'You are in trial mode. Start your subscription to unlock all features.' })}
-          <Link to="/app/billing" style={{ marginLeft: '8px', color: '#6B46C1', textDecoration: 'underline' }}>
-            Manage Subscription
-          </Link>
+          لا يوجد لديك اشتراك نشط. يرجى الاشتراك عبر متجر التطبيقات.
+          <a
+            href="https://apps.shopify.com/trackprofit-2"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ marginLeft: '12px', color: '#6B46C1', textDecoration: 'underline' }}
+          >
+            الذهاب إلى متجر التطبيقات
+          </a>
         </div>
       )}
+
+      {/* إشعار وضع التجربة محذوف بناءً على طلب المستخدم */}
+
       <div style={{ 
         position: 'fixed', 
         top: '0', 

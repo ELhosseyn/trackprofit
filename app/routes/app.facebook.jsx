@@ -40,8 +40,6 @@ export function links() {
     { rel: "dns-prefetch", href: FACEBOOK_GRAPH_URL },
     
     // Preload critical components
-    { rel: "modulepreload", href: "/build/components/StatCard.js" },
-    { rel: "modulepreload", href: "/build/components/FacebookMetrics.js" },
     
     // Preload critical assets
     { rel: "preload", href: "/images/facebook-brand.svg", as: "image" },

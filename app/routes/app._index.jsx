@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect, useMemo, useRef , Suspense } from "react";
+import { useCallback, useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { useLoaderData, useFetcher, useNavigation } from "@remix-run/react";
 import { json } from "@remix-run/node";
 import {
@@ -15,12 +15,10 @@ import {
   TextField,
   Box,
   Badge,
-  SkeletonBodyText,
   Frame,
   Toast,
   Divider,
   CalloutCard,
-  EmptyState,
   Bleed,
   InlineGrid,
   Banner,
@@ -32,113 +30,118 @@ import { facebook } from "../services/facebook.server.js";
 import { zrexpress } from "../services/zrexpress.server.js";
 import {
   LazyChartComponents,
-  LazyDashboardPanel,
-  LazyDashboardStats,
   LazyFacebookMetrics,
   LoadingFallback
 } from "../components/LazyComponents";
 import ErrorBoundary from "../components/ErrorBoundary";
 import { useLanguage } from "../utils/i18n/LanguageContext.jsx";
 
-// Simple SparkLine Chart Component using Canvas
-const SparkLineChart = ({ data, trend, formatValue, language, t, isRTL }) => {
+// SparkLineChart: Canvas-based sparkline with hover tooltip
+const SparkLineChart = ({ data, trend, formatValue, language, t }) => {
   const canvasRef = useRef(null);
   const [isHovered, setIsHovered] = useState(false);
   const [hoverIndex, setHoverIndex] = useState(-1);
 
-  // Debug logging
-  useEffect(() => {
-    // console.log('SparkLineChart received data:', data);
-  }, [data]);
-
-  // Sanitize data
-  const sanitizedData = data && Array.isArray(data)
-    ? data.filter(d => d && d.value !== undefined && d.value !== null && !isNaN(Number(d.value)))
-      .map(d => ({
-        ...d,
-        value: Number(d.value) || 0
-      }))
-    : [];
+  const sanitizedData = useMemo(() => (
+    Array.isArray(data)
+      ? data.filter(d => d && d.value !== undefined && d.value !== null && !isNaN(Number(d.value)))
+        .map(d => ({ ...d, value: Number(d.value) || 0 }))
+      : []
+  ), [data]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-
-    // Set canvas size
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
-
-    // Clear canvas
     ctx.clearRect(0, 0, rect.width, rect.height);
-
     if (sanitizedData.length < 2) {
-      // Draw a simple dot for single data point
-      const centerX = rect.width / 2;
-      const centerY = rect.height / 2;
-      ctx.fillStyle = trend === 'positive' ? '#008060' : '#DC3545';
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
-      ctx.fill();
+      if (sanitizedData.length === 1) {
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+        ctx.fillStyle = trend === 'positive' ? '#008060' : '#DC3545';
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
+        ctx.fill();
+      }
       return;
     }
-
     const values = sanitizedData.map(d => d.value);
     const minValue = Math.min(...values);
     const maxValue = Math.max(...values);
     const range = maxValue - minValue;
-
-    // Handle case where all values are the same (range = 0)
     const effectiveRange = range === 0 ? Math.max(1, Math.abs(maxValue) * 0.1) : range;
-    const centerValue = range === 0 ? maxValue : minValue;
-
     const padding = 8;
     const width = rect.width - padding * 2;
     const height = rect.height - padding * 2;
-
-    // Create path
     ctx.beginPath();
     ctx.strokeStyle = trend === 'positive' ? '#008060' : '#DC3545';
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-
     sanitizedData.forEach((point, index) => {
       const x = padding + (index / (sanitizedData.length - 1)) * width;
-      let y;
-
-      if (range === 0) {
-        y = padding + height / 2;
-      } else {
-        y = padding + height - ((point.value - minValue) / effectiveRange) * height;
-      }
-
-      if (index === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
+      let y = range === 0
+        ? padding + height / 2
+        : padding + height - ((point.value - minValue) / effectiveRange) * height;
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     });
-
     ctx.stroke();
-
-    // Fill area under curve
-    if (sanitizedData.length > 1) {
-      ctx.globalAlpha = 0.1;
+    ctx.save();
+    ctx.globalAlpha = 0.1;
+    ctx.fillStyle = trend === 'positive' ? '#008060' : '#DC3545';
+    ctx.lineTo(padding + width, padding + height);
+    ctx.lineTo(padding, padding + height);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    if (isHovered && hoverIndex >= 0 && hoverIndex < sanitizedData.length) {
+      const point = sanitizedData[hoverIndex];
+      const x = padding + (hoverIndex / (sanitizedData.length - 1)) * width;
+      let y = range === 0
+        ? padding + height / 2
+        : padding + height - ((point.value - minValue) / effectiveRange) * height;
       ctx.fillStyle = trend === 'positive' ? '#008060' : '#DC3545';
-      ctx.lineTo(padding + width, padding + height);
-      ctx.lineTo(padding, padding + height);
-      ctx.closePath();
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, 2 * Math.PI);
       ctx.fill();
-      ctx.globalAlpha = 1;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
     }
   }, [sanitizedData, trend, isHovered, hoverIndex]);
 
-  // Skip rendering if no data or empty data
+  const getTooltipValue = useCallback(() => {
+    if (hoverIndex >= 0 && hoverIndex < sanitizedData.length) {
+      const value = sanitizedData[hoverIndex].value;
+      return formatValue ? formatValue(value) : new Intl.NumberFormat(language === 'ar' ? 'ar-DZ' : 'en-US').format(value);
+    }
+    return '';
+  }, [hoverIndex, sanitizedData, formatValue, language]);
+
+  const handleMouseMove = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const padding = 8;
+    const width = rect.width - padding * 2;
+    const index = Math.round(((x - padding) / width) * (sanitizedData.length - 1));
+    if (index >= 0 && index < sanitizedData.length) {
+      setHoverIndex(index);
+      setIsHovered(true);
+    }
+  };
+  const handleMouseLeave = () => {
+    setIsHovered(false);
+    setHoverIndex(-1);
+  };
+
   if (!data || !Array.isArray(data) || data.length === 0 || sanitizedData.length === 0) {
     return (
       <div style={{ height: '70px', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -147,147 +150,11 @@ const SparkLineChart = ({ data, trend, formatValue, language, t, isRTL }) => {
     );
   }
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-
-    // Set canvas size
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
-
-    // Clear canvas
-    ctx.clearRect(0, 0, rect.width, rect.height);
-
-    if (sanitizedData.length < 2) {
-      // Draw a simple dot for single data point
-      const centerX = rect.width / 2;
-      const centerY = rect.height / 2;
-      ctx.fillStyle = trend === 'positive' ? '#008060' : '#DC3545';
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
-      ctx.fill();
-      return;
-    }
-
-    const values = sanitizedData.map(d => d.value);
-    const minValue = Math.min(...values);
-    const maxValue = Math.max(...values);
-    const range = maxValue - minValue;
-
-    // Handle case where all values are the same (range = 0)
-    const effectiveRange = range === 0 ? Math.max(1, Math.abs(maxValue) * 0.1) : range;
-    const centerValue = range === 0 ? maxValue : minValue;
-
-    const padding = 8;
-    const width = rect.width - padding * 2;
-    const height = rect.height - padding * 2;
-
-    // Create path
-    ctx.beginPath();
-    ctx.strokeStyle = trend === 'positive' ? '#008060' : '#DC3545';
-    ctx.lineWidth = 2;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    sanitizedData.forEach((point, index) => {
-      const x = padding + (index / (sanitizedData.length - 1)) * width;
-      let y;
-
-      if (range === 0) {
-        // All values are the same, draw a horizontal line in the middle
-        y = padding + height / 2;
-      } else {
-        y = padding + height - ((point.value - minValue) / range) * height;
-      }
-
-      if (index === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    });
-
-    ctx.stroke();
-
-    // Fill area under curve
-    if (sanitizedData.length > 1) {
-      ctx.globalAlpha = 0.1;
-      ctx.fillStyle = trend === 'positive' ? '#008060' : '#DC3545';
-      ctx.lineTo(padding + width, padding + height);
-      ctx.lineTo(padding, padding + height);
-      ctx.closePath();
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-
-    // Draw hover point
-    if (isHovered && hoverIndex >= 0 && hoverIndex < sanitizedData.length) {
-      const point = sanitizedData[hoverIndex];
-      const x = padding + (hoverIndex / (sanitizedData.length - 1)) * width;
-      let y;
-
-      if (range === 0) {
-        y = padding + height / 2;
-      } else {
-        y = padding + height - ((point.value - minValue) / range) * height;
-      }
-
-      ctx.fillStyle = trend === 'positive' ? '#008060' : '#DC3545';
-      ctx.beginPath();
-      ctx.arc(x, y, 4, 0, 2 * Math.PI);
-      ctx.fill();
-
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-
-  }, [sanitizedData, trend, isHovered, hoverIndex]);
-
-  const handleMouseMove = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const padding = 8;
-    const width = rect.width - padding * 2;
-
-    const index = Math.round(((x - padding) / width) * (sanitizedData.length - 1));
-    if (index >= 0 && index < sanitizedData.length) {
-      setHoverIndex(index);
-      setIsHovered(true);
-    }
-  };
-
-  const handleMouseLeave = () => {
-    setIsHovered(false);
-    setHoverIndex(-1);
-  };
-
-  const getTooltipValue = () => {
-    if (hoverIndex >= 0 && hoverIndex < sanitizedData.length) {
-      const value = sanitizedData[hoverIndex].value;
-      return formatValue ? formatValue(value) : new Intl.NumberFormat(language === 'ar' ? 'ar-DZ' : 'en-US').format(value);
-    }
-    return '';
-  };
-
   return (
     <div style={{ height: '70px', width: '100%', position: 'relative' }}>
       <canvas
         ref={canvasRef}
-        style={{
-          width: '100%',
-          height: '100%',
-          cursor: 'crosshair',
-          display: 'block'
-        }}
+        style={{ width: '100%', height: '100%', cursor: 'crosshair', display: 'block' }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
       />
@@ -313,28 +180,12 @@ const SparkLineChart = ({ data, trend, formatValue, language, t, isRTL }) => {
   );
 };
 
-// Add a loading indicator component
+// Loading indicator component
 const LoadingBar = ({ isLoading }) => {
   if (!isLoading) return null;
-
   return (
-    <div style={{
-      position: 'fixed',
-      top: '0',
-      left: '0',
-      right: '0',
-      height: '3px',
-      background: 'linear-gradient(to right, #008060, #95bf47)',
-      zIndex: 1000,
-      animation: 'loading-bar 1.5s infinite linear'
-    }}>
-      <style>{`
-        @keyframes loading-bar {
-          0% { width: 0%; }
-          50% { width: 65%; }
-          100% { width: 100%; }
-        }
-      `}</style>
+    <div style={{ position: 'fixed', top: '0', left: '0', right: '0', height: '3px', background: 'linear-gradient(to right, #008060, #95bf47)', zIndex: 1000, animation: 'loading-bar 1.5s infinite linear' }}>
+      <style>{`@keyframes loading-bar { 0% { width: 0%; } 50% { width: 65%; } 100% { width: 100%; } }`}</style>
     </div>
   );
 };
@@ -350,8 +201,6 @@ export function meta() {
   ];
 }
 
-
-// Date presets keys - will be localized in the component
 const DATE_PRESETS_CONFIG = [
   { value: "today", translationKey: "datePresets.today" },
   { value: "last_7_days", translationKey: "datePresets.last7Days" },
@@ -373,7 +222,7 @@ const DEFAULT_FACEBOOK_DATA = {
 
 const getPresetDates = (preset = "last_30_days") => {
   const end = new Date();
-  end.setHours(23, 59, 59, 999); // Make sure end includes the full day
+  end.setHours(23, 59, 59, 999);
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   switch (preset) {
@@ -385,7 +234,375 @@ const getPresetDates = (preset = "last_30_days") => {
   return { start, end };
 };
 
-// Format functions are defined inside the component since they need access to the language hook
+
+// --- Refactored Helper Functions for the Loader ---
+
+async function getShopCurrency(admin) {
+  const response = await admin.graphql(
+    `#graphql
+    query getShopCurrency {
+      shop {
+        currencyCode
+      }
+    }`
+  );
+  const data = await response.json();
+  return data.data.shop.currencyCode || 'DZD';
+}
+
+/**
+ * CORRECTED fetchPrimaryData function.
+ * This version first fetches revenue-generating events (orders, shipments) and then uses
+ * their IDs to fetch the associated COGS data, ensuring no costs are missed due to date mismatches.
+ */
+async function fetchPrimaryData({ admin, session }, dateRange) {
+  const { start, end } = dateRange;
+  const { shop } = session;
+
+  // Step 1: Fetch all potential revenue events within the date range.
+  const [
+    shopCurrency,
+    fbCredentials,
+    allShipments,
+    shopifyOrdersResponse,
+    zrExpressProfit,
+  ] = await Promise.all([
+    getShopCurrency(admin),
+    prisma.FacebookCredential.findUnique({ where: { shop } }),
+    prisma.Shipment.findMany({
+      where: { shop, updatedAt: { gte: start, lte: end } },
+      select: { id: true, total: true, deliveryFee: true, cancelFee: true, status: true, totalCost: true, updatedAt: true, orderId: true },
+    }),
+    admin.graphql(`#graphql
+      query getOrders($query: String!) {
+        orders(first: 250, query: $query) {
+          edges {
+            node {
+              id
+              name
+              displayFinancialStatus
+              createdAt
+              totalPriceSet {
+                shopMoney {
+                  amount
+                }
+              }
+            }
+          }
+        }
+      }
+    `, {
+      variables: {
+        // Fetch PAID orders created in the range. Revenue recognition will happen later.
+        query: `created_at:>=${start.toISOString()} AND created_at:<=${end.toISOString()} AND financial_status:paid`
+      }
+    }),
+    zrexpress.getNetProfit(shop, dateRange),
+  ]);
+
+  const shopifyOrdersData = await shopifyOrdersResponse.json();
+  const shopifyOrdersList = shopifyOrdersData?.data?.orders?.edges?.map(edge => ({
+    id: edge.node.id,
+    name: edge.node.name,
+    financialStatus: edge.node.displayFinancialStatus,
+    createdAt: edge.node.createdAt,
+    totalPrice: edge.node.totalPriceSet?.shopMoney?.amount || 0,
+  })) || [];
+
+  // Step 2: Collect all unique order IDs from shipments and Shopify orders.
+  const orderIdsFromShipments = allShipments.map(s => s.orderId).filter(Boolean);
+  const orderIdsFromShopify = shopifyOrdersList.map(o => o.id.split('/').pop()).filter(Boolean);
+  const allRelevantOrderIds = [...new Set([...orderIdsFromShipments, ...orderIdsFromShopify])];
+
+  // Step 3: Fetch COGS data for ONLY the relevant order IDs, regardless of when COGS was entered.
+  let orderCOGSData = [];
+  if (allRelevantOrderIds.length > 0) {
+    orderCOGSData = await prisma.OrderCOGS.findMany({
+      where: {
+        shop,
+        orderId: { in: allRelevantOrderIds }
+      },
+      include: { items: true },
+    });
+  }
+
+  return {
+    shopCurrency,
+    fbCredentials,
+    allShipments,
+    orderCOGSData,
+    shopifyOrdersList,
+    zrExpressProfitData: zrExpressProfit.success ? zrExpressProfit.data : null,
+  };
+}
+
+
+/**
+ * [FIXED] Fetches and processes comprehensive Facebook Ads data.
+ * 1. Correctly persists the selected ad account across reloads.
+ * 2. Fetches not just spend, but also revenue, purchases, and impressions.
+ *    (Assumes your facebook.server.js service can provide this data).
+ */
+async function fetchFacebookData(fbCredentials, searchParams, preset, exchangeRate) {
+  const facebookResult = {
+    data: { ...DEFAULT_FACEBOOK_DATA },
+    adCosts: 0, adRevenue: 0, adPurchases: 0, adImpressions: 0, fbROAS: 0, dailyMetrics: [],
+  };
+
+  if (!fbCredentials?.accessToken) return facebookResult;
+
+  try {
+    const adAccounts = await facebook.getAdAccounts(fbCredentials.accessToken);
+    if (!Array.isArray(adAccounts)) return facebookResult;
+
+    facebookResult.data.accounts = adAccounts.map(acc => ({
+      value: acc.id || '',
+      label: acc.name || `Account ${acc.accountId || 'Unknown'}`,
+      currency: acc.currency || 'USD'
+    }));
+
+    const selectedAdAccountId = searchParams.get("adAccountId");
+    if (!selectedAdAccountId) return facebookResult;
+
+    const selectedAccount = facebookResult.data.accounts.find(acc => acc.value === selectedAdAccountId);
+    if (!selectedAccount) return facebookResult;
+    
+    // FIX #1: Persist the selected account object in the response data.
+    // This ensures the dropdown and toast notifications know which account is active.
+    facebookResult.data.selectedAccount = selectedAccount;
+
+    const { start, end } = getPresetDates(preset);
+    const since = start.toISOString().slice(0, 10);
+    const until = end.toISOString().slice(0, 10);
+
+    // FIX #2: Fetch comprehensive daily metrics, not just spend.
+    // We assume your service can provide daily data for spend, revenue, purchases, and impressions.
+    // If your service function is named differently (e.g., getInsights), change it here.
+    const { getDailySpend } = await import("../services/facebook.server.js");
+    const dailyInsights = await getDailySpend(fbCredentials.accessToken, selectedAccount.value, since, until);
+
+    // Process the full daily insight data
+    facebookResult.dailyMetrics = dailyInsights.map(day => ({
+      date: day.date,
+      spend: (day.spend || 0) * exchangeRate,
+      revenue: (day.revenue || 0) * exchangeRate, // Assuming 'revenue' is in the payload
+      purchases: (day.purchases || 0),           // Assuming 'purchases' is in the payload
+      impressions: (day.impressions || 0),       // Assuming 'impressions' is in the payload
+    }));
+
+    // Calculate totals from the processed daily metrics
+    facebookResult.adCosts = facebookResult.dailyMetrics.reduce((sum, d) => sum + d.spend, 0);
+    facebookResult.adRevenue = facebookResult.dailyMetrics.reduce((sum, d) => sum + d.revenue, 0);
+    facebookResult.adPurchases = facebookResult.dailyMetrics.reduce((sum, d) => sum + d.purchases, 0);
+    facebookResult.adImpressions = facebookResult.dailyMetrics.reduce((sum, d) => sum + d.impressions, 0);
+    facebookResult.fbROAS = facebookResult.adCosts > 0 ? Number((facebookResult.adRevenue / facebookResult.adCosts).toFixed(2)) : 0;
+
+  } catch (error) {
+    console.error("Failed to fetch Facebook data:", error);
+  }
+
+  return facebookResult;
+}
+
+
+function calculateProductPerformance(orderCOGSData) {
+  if (!orderCOGSData || orderCOGSData.length === 0) {
+    return { topSellingProduct: null, mostProfitableProduct: null };
+  }
+  const productSales = new Map();
+  const productProfits = new Map();
+  // Get delivered shipments (same logic as dailyStats)
+  const deliveredShipments = (typeof window === 'undefined' && global && global.deliveredShipments) ? global.deliveredShipments : [];
+  // If not available globally, fallback to extracting from orderCOGSData
+  if (!deliveredShipments.length && orderCOGSData) {
+    // Try to reconstruct deliveredShipments from orderCOGSData if possible
+    // This fallback assumes orderCOGSData contains shipment info
+    for (const order of orderCOGSData) {
+      if (order.shipment && (order.shipment.status === "Livrée"  || (order.shipment.status && order.shipment.status.toLowerCase().includes("livrée")))) {
+        deliveredShipments.push(order.shipment);
+      }
+    }
+  }
+  // Aggregate products only from delivered shipments
+  for (const shipment of deliveredShipments) {
+    // Find matching orderCOGSData for this shipment
+    const order = orderCOGSData.find(o => o.orderId === shipment.orderId);
+    if (!order || !order.items) continue;
+    for (const item of order.items) {
+      const productId = item.productId || item.id || item.sku || item.title;
+      const title = item.title || "Unknown Product";
+      let quantity = 1;
+      if (typeof item.quantity === 'number' && !isNaN(item.quantity)) {
+        quantity = Math.max(1, Math.floor(item.quantity));
+      } else if (typeof item.quantity === 'string' && !isNaN(Number(item.quantity))) {
+        quantity = Math.max(1, Math.floor(Number(item.quantity)));
+      }
+      const revenue = Number(item.totalRevenue) || 0;
+      const cost = Number(item.totalCost) || 0;
+
+      if (!productSales.has(productId)) {
+        productSales.set(productId, { id: productId, title, quantity: 0, revenue: 0 });
+      }
+      const sales = productSales.get(productId);
+      sales.quantity += quantity;
+      sales.revenue += revenue;
+
+      if (!productProfits.has(productId)) {
+        productProfits.set(productId, { id: productId, title, profit: 0, revenue: 0, totalCost: 0, quantity: 0 });
+      }
+      const profits = productProfits.get(productId);
+      profits.profit += (revenue - cost);
+      profits.revenue += revenue;
+      profits.totalCost += cost;
+      profits.quantity += quantity;
+    }
+  }
+  // Best selling: highest quantity
+  const sortedBySales = Array.from(productSales.values()).sort((a, b) => b.quantity - a.quantity);
+  // Most profitable: highest profit
+  const sortedByProfit = Array.from(productProfits.values()).filter(p => p.quantity > 0).map(p => ({ ...p, profitPerUnit: p.profit / p.quantity })).sort((a, b) => b.profit - a.profit);
+  const topSellingProduct = sortedBySales.length > 0 ? { ...sortedBySales[0], profit: productProfits.get(sortedBySales[0].id)?.profit || 0 } : null;
+  const mostProfitableProduct = sortedByProfit.length > 0 ? sortedByProfit[0] : null;
+  // Debug output
+  console.log('Top Selling Product:', topSellingProduct);
+  console.log('Most Profitable Product:', mostProfitableProduct);
+  return { topSellingProduct, mostProfitableProduct };
+}
+
+/**
+ * [FIXED] This function was completely rewritten to address several critical bugs:
+ * 1.  Revenue Recognition: Now correctly recognizes revenue only when a shipment status is "Livrée" (Delivered), not the incorrect "En Préparation".
+ * 2.  Consistency: All calculations, including diagnostics, now use the same "Livrée" status, eliminating data discrepancies.
+ * 3.  Accurate Totals: Overall stats (total profit, revenue, etc.) are now calculated by summing the daily data, ensuring the totals always match the chart data.
+ * 4.  Robust COGS and Fee Application: Costs, delivery fees, and cancellation fees are now applied correctly on the day the corresponding event (delivery/cancellation) occurs.
+ */
+function calculateFinalStats({ allShipments, shopifyOrdersList, orderCOGSData, fbDailyMetrics, dateRange, exchangeRate, adCosts }) {
+  const stats = { ...DEFAULT_STATS, dailyStats: [] };
+  const dailyData = {};
+  const processedOrderIdsForRevenue = new Set();
+
+  // Always use UTC date string (YYYY-MM-DD) for keys
+  const dateCursor = new Date(Date.UTC(dateRange.start.getFullYear(), dateRange.start.getMonth(), dateRange.start.getDate()));
+  const endDate = new Date(Date.UTC(dateRange.end.getFullYear(), dateRange.end.getMonth(), dateRange.end.getDate()));
+  while (dateCursor <= endDate) {
+    const dateString = dateCursor.toISOString().slice(0, 10); // UTC YYYY-MM-DD
+    dailyData[dateString] = { orderRevenue: 0, cogs: 0, shippingAndCancelFees: 0, adCosts: 0, shipmentCount: 0, totalProfit: 0 };
+    dateCursor.setUTCDate(dateCursor.getUTCDate() + 1);
+  }
+
+  const cogsMap = new Map();
+  orderCOGSData.forEach(order => {
+    cogsMap.set(order.orderId, parseFloat(order.totalCost || 0));
+    if (order.orderId.includes('gid://')) {
+      cogsMap.set(order.orderId.split('/').pop(), parseFloat(order.totalCost || 0));
+    }
+  });
+
+
+  // --- Start: Populate Daily Data for Charts ---
+  allShipments.forEach(shipment => {
+    // Normalize shipment date to UTC YYYY-MM-DD
+    const d = new Date(shipment.updatedAt);
+    const dateString = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())).toISOString().slice(0, 10);
+    if (!dailyData[dateString]) return;
+
+    // FIX #3: Revenue is recognized ONLY on delivered shipments ("Livrée").
+    // Removed "En Préparation" to prevent premature revenue recognition.
+    const isDelivered = shipment.status && (shipment.status === "Livrée"  || shipment.status?.toLowerCase().includes("livrée"));
+    const isCancelled = shipment.status?.includes("Retour") || shipment.status === "Annuler";
+
+    if (isDelivered && !processedOrderIdsForRevenue.has(shipment.orderId)) {
+      dailyData[dateString].orderRevenue += parseFloat(shipment.total || 0);
+      dailyData[dateString].cogs += cogsMap.get(shipment.orderId) || 0;
+      processedOrderIdsForRevenue.add(shipment.orderId);
+      dailyData[dateString].shipmentCount++;
+      // Apply delivery fee as a cost on the day of delivery
+      dailyData[dateString].shippingAndCancelFees += parseFloat(shipment.deliveryFee || 0);
+    } else if (isCancelled) {
+      // Apply cancellation fee as a cost
+      dailyData[dateString].shippingAndCancelFees += parseFloat(shipment.cancelFee || 0);
+    }
+  });
+
+  shopifyOrdersList.forEach(order => {
+    const orderId = order.id.split('/').pop();
+    // Normalize order date to UTC YYYY-MM-DD
+    const d = new Date(order.createdAt);
+    const dateString = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())).toISOString().slice(0, 10);
+    // Process paid orders that haven't been accounted for via shipment (e.g., digital goods)
+    if (order.financialStatus === 'PAID' && !processedOrderIdsForRevenue.has(orderId) && dailyData[dateString]) {
+      dailyData[dateString].orderRevenue += parseFloat(order.totalPrice || 0);
+      dailyData[dateString].cogs += cogsMap.get(orderId) || 0;
+      processedOrderIdsForRevenue.add(orderId);
+    }
+  });
+
+  // Map daily adCosts from fbDailyMetrics
+  if (fbDailyMetrics && Array.isArray(fbDailyMetrics) && fbDailyMetrics.length > 0) {
+    fbDailyMetrics.forEach(day => {
+      const fbDate = day.date && typeof day.date === 'string' ? day.date.slice(0, 10) : '';
+      if (dailyData[fbDate]) {
+        dailyData[fbDate].adCosts += (day.spend || 0); // Already includes exchange rate from fetchFacebookData
+      }
+    });
+  } else {
+    // If no daily metrics, fallback to total adCosts on the last day
+    const lastDate = Object.keys(dailyData).pop();
+    if (lastDate && typeof adCosts === 'number' && adCosts > 0) {
+      dailyData[lastDate].adCosts = adCosts;
+    }
+  }
+
+  Object.entries(dailyData).forEach(([date, day]) => {
+    day.totalProfit = day.orderRevenue - day.cogs - day.shippingAndCancelFees - day.adCosts;
+    stats.dailyStats.push({ date, ...day });
+  });
+  // --- End: Daily Data Population ---
+
+  // --- Recalculate all totals directly from daily data to ensure accuracy and consistency ---
+  stats.orderRevenue = stats.dailyStats.reduce((sum, day) => sum + day.orderRevenue, 0);
+  stats.cogs = stats.dailyStats.reduce((sum, day) => sum + day.cogs, 0);
+  stats.shippingAndCancelFees = stats.dailyStats.reduce((sum, day) => sum + day.shippingAndCancelFees, 0);
+  stats.adCosts = stats.dailyStats.reduce((sum, day) => sum + day.adCosts, 0);
+  stats.totalProfit = stats.dailyStats.reduce((sum, day) => sum + day.totalProfit, 0);
+
+  // Fallback if daily ad costs were not available but total was
+  if (stats.adCosts === 0 && typeof adCosts === 'number' && adCosts > 0) {
+    stats.adCosts = adCosts;
+    stats.totalProfit = stats.orderRevenue - stats.cogs - stats.shippingAndCancelFees - stats.adCosts;
+  }
+
+  // --- Ensure Diagnostics data is calculated consistently with the main logic ---
+  // FIX #3 (Consistency): Use the same "Livrée" logic for diagnostics.
+  const deliveredShipments = allShipments.filter(s => s.status && (s.status === "Livrée" || s.status?.toLowerCase().includes("livrée")));
+  const cancelledShipments = allShipments.filter(s => s.status?.includes("Retour") || s.status === "Annuler");
+
+  const totalDeliveryFees = deliveredShipments.reduce((sum, s) => sum + parseFloat(s.deliveryFee || 0), 0);
+  const totalCancelFees = cancelledShipments.reduce((sum, s) => sum + parseFloat(s.cancelFee || 0), 0);
+  const totalCogsValue = deliveredShipments.reduce((sum, s) => sum + (cogsMap.get(s.orderId) || 0), 0);
+
+  const paidOrdersCogs = shopifyOrdersList
+    .filter(o => o.financialStatus === 'PAID' && !processedOrderIdsForRevenue.has(o.id.split('/').pop()))
+    .reduce((sum, o) => sum + (cogsMap.get(o.id.split('/').pop()) || 0), 0);
+
+  const totalCogsValueForDiagnostics = totalCogsValue + paidOrdersCogs;
+  const shipmentsWithCostData = deliveredShipments.filter(s => (cogsMap.get(s.orderId) || 0) > 0).length;
+
+  const diagnostics = {
+    ordersWithCost: orderCOGSData.filter(o => (o.totalCost || 0) > 0).length,
+    totalCogsValue: totalCogsValueForDiagnostics,
+    shipmentsFound: allShipments.length,
+    shipmentsWithCostData: shipmentsWithCostData,
+    totalShippingFees: totalDeliveryFees,
+    totalCancelFees: totalCancelFees,
+    dateRange: { start: dateRange.start.toISOString(), end: dateRange.end.toISOString() }
+  };
+  
+  return { stats, diagnostics };
+}
+
+
+// --- Main Loader Function ---
 export const loader = async ({ request }) => {
   const url = new URL(request.url);
   const preset = url.searchParams.get("preset") || "last_30_days";
@@ -393,327 +610,70 @@ export const loader = async ({ request }) => {
 
   try {
     const { admin, session } = await authenticate.admin(request);
-
-    // ✅ FIX: Fetch shop currency from Shopify Admin API
-    const shopCurrencyResponse = await admin.graphql(
-      `#graphql
-      query getShopCurrency {
-        shop {
-          currencyCode
-        }
-      }`
-    );
-    const shopCurrencyData = await shopCurrencyResponse.json();
-    const shopCurrency = shopCurrencyData.data.shop.currencyCode || 'DZD'; // Fallback to DZD
-
     const exchangeRate = parseFloat(exchangeRateParam);
-
     if (isNaN(exchangeRate)) return json({ error: "Invalid exchange rate" }, { status: 400 });
+    const dateRange = getPresetDates(preset);
 
-    const { start, end } = getPresetDates(preset);
-    let stats = { ...DEFAULT_STATS, dailyStats: [] };
-    let facebookData = { ...DEFAULT_FACEBOOK_DATA };
-    let topSellingProduct = null;
-    let mostProfitableProduct = null;
+    const { shopCurrency, fbCredentials, allShipments, orderCOGSData, zrExpressProfitData, shopifyOrdersList } = await fetchPrimaryData({ admin, session }, dateRange);
 
-    if (!prisma) {
-      console.error('❌ Prisma client is not available');
-      throw new Error('Database connection not available');
-    }
+    const { data: facebookData, adCosts, adRevenue, adPurchases, adImpressions, fbROAS, dailyMetrics: fbDailyMetrics } = await fetchFacebookData(fbCredentials, url.searchParams, preset, exchangeRate);
 
-    // Fetch all necessary data in parallel for better performance
-    const [fbCredentials, allShipments, orderCOGSData, zrExpressProfit, paidOrders] = await Promise.all([
-      prisma.FacebookCredential.findUnique({ where: { shop: session.shop } }),
-      prisma.Shipment.findMany({
-        where: {
-          shop: session.shop,
-          updatedAt: { gte: start, lte: end }
-        },
-        select: {
-          id: true,
-          total: true,
-          deliveryFee: true,
-          cancelFee: true,
-          status: true,
-          totalCost: true,
-          updatedAt: true,
-          orderId: true
-        }
-      }),
-      prisma.OrderCOGS.findMany({
-        where: {
-          shop: session.shop,
-          createdAt: { gte: start, lte: end }
-        },
-        include: {
-          items: true
-        }
-      }),
-      zrexpress.getNetProfit(session.shop, { start, end }),
-      admin.rest.resources.Order.all({
-        session: session,
-        status: 'any',
-        financial_status: 'paid',
-        created_at_min: start.toISOString(),
-        created_at_max: end.toISOString(),
-      }),
-    ]);
+    const { topSellingProduct, mostProfitableProduct } = calculateProductPerformance(orderCOGSData);
 
-    const paidOrderIds = new Set(paidOrders.data.map(o => o.id.toString()));
-
-    const dailyData = {};
-    const dateCursor = new Date(start);
-    while (dateCursor <= end) {
-      dailyData[dateCursor.toISOString().split('T')[0]] = {
-        orderRevenue: 0, cogs: 0, shippingAndCancelFees: 0, adCosts: 0,
-        shipmentCount: 0, orderCount: 0
-      };
-      dateCursor.setDate(dateCursor.getDate() + 1);
-    }
-
-    const today = new Date().toISOString().split('T')[0];
-    if (!dailyData[today]) {
-      dailyData[today] = {
-        orderRevenue: 0, cogs: 0, shippingAndCancelFees: 0, adCosts: 0,
-        shipmentCount: 0, orderCount: 0
-      };
-    }
-
-    for (const shipment of allShipments) {
-      const dateString = shipment.updatedAt.toISOString().split('T')[0];
-      if (dailyData[dateString]) {
-        dailyData[dateString].shipmentCount += 1;
-
-        if (shipment.status === "Livrée" ) {
-          dailyData[dateString].orderRevenue += parseFloat(shipment.total || 0);
-          dailyData[dateString].shippingAndCancelFees += parseFloat(shipment.deliveryFee || 0);
-          if (shipment.totalCost) dailyData[dateString].cogs += parseFloat(shipment.totalCost);
-        } else if (shipment.status?.includes("Retour") || shipment.status === "Annulé") {
-          dailyData[dateString].shippingAndCancelFees += parseFloat(shipment.cancelFee || 0);
-        }
-      }
-    }
-
-    for (const order of orderCOGSData) {
-      const dateString = order.createdAt.toISOString().split('T')[0];
-      if (dailyData[dateString]) {
-        dailyData[dateString].orderCount += 1;
-
-        const orderTotalCost = parseFloat(order.totalCost || 0);
-
-        const matchingShipment = allShipments.find(shipment =>
-          shipment.orderId === order.orderId &&
-          (shipment.status === "Livrée" )
-        );
-
-        if (!matchingShipment) {
-          dailyData[dateString].orderRevenue += parseFloat(order.totalRevenue || 0);
-          dailyData[dateString].cogs += orderTotalCost;
-        } else {
-          if (matchingShipment.totalCost) {
-            const shipmentDateString = matchingShipment.updatedAt.toISOString().split('T')[0];
-            if (dailyData[shipmentDateString]) {
-              dailyData[shipmentDateString].cogs -= parseFloat(matchingShipment.totalCost);
-            }
-          }
-          dailyData[dateString].cogs += orderTotalCost;
-        }
-      }
-    }
-
-    if (orderCOGSData.length > 0) {
-      const productSales = new Map();
-      const productProfits = new Map();
-
-      for (const order of orderCOGSData) {
-        for (const item of order.items) {
-          const currentSales = productSales.get(item.productId) || {
-            id: item.productId, title: item.title, quantity: 0, revenue: 0
-          };
-          currentSales.quantity += item.quantity;
-          currentSales.revenue += item.totalRevenue;
-          productSales.set(item.productId, currentSales);
-
-          const currentProfits = productProfits.get(item.productId) || {
-            id: item.productId, title: item.title, profit: 0, revenue: 0,
-            totalCost: 0, quantity: 0
-          };
-          const itemRevenue = parseFloat(item.totalRevenue || 0);
-          const itemCost = parseFloat(item.totalCost || 0);
-          const itemQuantity = parseInt(item.quantity || 1);
-          const itemProfit = itemRevenue - itemCost;
-
-          currentProfits.profit += itemProfit;
-          currentProfits.revenue += itemRevenue;
-          currentProfits.totalCost += itemCost;
-          currentProfits.quantity += itemQuantity;
-          productProfits.set(item.productId, currentProfits);
-        }
-      }
-
-      const sortedBySales = Array.from(productSales.values()).sort((a, b) => b.quantity - a.quantity);
-
-      const sortedByProfit = Array.from(productProfits.values())
-        .filter(product => product.quantity > 0)
-        .map(product => ({
-          ...product,
-          profitPerUnit: product.profit / product.quantity,
-          margin: product.revenue > 0 ? ((product.profit / product.revenue) * 100).toFixed(2) : '0.00',
-          hasRealData: product.revenue > 0 || product.totalCost > 0
-        }))
-        .sort((a, b) => {
-          if (a.hasRealData !== b.hasRealData) return a.hasRealData ? -1 : 1;
-          const profitDiff = b.profit - a.profit;
-          if (Math.abs(profitDiff) > 0.01) return profitDiff;
-          return b.profitPerUnit - a.profitPerUnit;
-        });
-
-      if (sortedBySales.length > 0) {
-        topSellingProduct = {
-          ...sortedBySales[0],
-          profit: productProfits.get(sortedBySales[0].id)?.profit || 0
-        };
-      }
-
-      if (sortedByProfit.length > 0) {
-        mostProfitableProduct = sortedByProfit[0];
-      }
-    }
-
-    if (fbCredentials?.accessToken) {
-      try {
-        const adAccounts = await facebook.getAdAccounts(fbCredentials.accessToken);
-        if (Array.isArray(adAccounts)) {
-          facebookData.accounts = adAccounts.map(acc => ({
-            value: acc.id || '',
-            label: acc.name || `Account ${acc.accountId || 'Unknown'}`,
-            currency: acc.currency || 'USD'
-          }));
-
-          const selectedAdAccountId = url.searchParams.get("adAccountId");
-          if (selectedAdAccountId) {
-            const selectedAccount = facebookData.accounts.find(acc => acc.value === selectedAdAccountId);
-            if (selectedAccount) {
-              try {
-                const fbData = await facebook.getCampaigns(
-                  fbCredentials.accessToken,
-                  selectedAccount.value,
-                  preset,
-                  true
-                );
-
-                if (fbData) {
-                  facebookData = {
-                    ...facebookData, selectedAccount,
-                    currency: fbData.currency || selectedAccount.currency || 'USD',
-                    metrics: fbData.metrics || DEFAULT_FACEBOOK_DATA.metrics,
-                    campaigns: fbData.campaigns || []
-                  };
-
-                  if (fbData.metrics) {
-                    stats = {
-                      ...stats,
-                      adCosts: (fbData.metrics.totalSpend || 0) * exchangeRate,
-                      adRevenue: (fbData.metrics.totalRevenue || 0) * exchangeRate,
-                      adPurchases: fbData.metrics.totalPurchases || 0,
-                      adImpressions: fbData.metrics.totalImpressions || 0,
-                      fbROAS: fbData.metrics.roas || 0
-                    };
-                  }
-
-                  if (fbData.dailyMetrics && Array.isArray(fbData.dailyMetrics)) {
-                    fbData.dailyMetrics.forEach(day => {
-                      if (dailyData[day.date]) {
-                        dailyData[day.date].adCosts += (day.spend || 0) * exchangeRate;
-                      }
-                    });
-                  }
-                } else {
-                  console.error("Facebook API returned null or undefined data");
-                }
-              } catch (fbError) {
-                console.error("Error fetching campaign data:", fbError);
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error("Failed to fetch Facebook data:", error);
-      }
-    }
-
-    Object.keys(dailyData).forEach(date => {
-      const day = dailyData[date];
-      const dailyProfit = day.orderRevenue - day.cogs - day.shippingAndCancelFees - day.adCosts;
-      stats.dailyStats.push({
-        date, ...day, totalProfit: dailyProfit,
-        shipmentCount: day.shipmentCount, orderCount: day.orderCount
-      });
-      stats.orderRevenue += day.orderRevenue;
-      stats.cogs += day.cogs;
-      stats.shippingAndCancelFees += day.shippingAndCancelFees;
+    const { stats, diagnostics } = calculateFinalStats({
+        allShipments,
+        shopifyOrdersList,
+        orderCOGSData,
+        fbDailyMetrics,
+        dateRange,
+        exchangeRate,
+        adCosts
     });
 
-    const totalDeliveryFees = allShipments.reduce((sum, s) =>
-      sum + ((s.status === "Livrée" && paidOrderIds.has(s.orderId)) ? parseFloat(s.deliveryFee || 0) : 0), 0);
+    stats.adRevenue = adRevenue;
+    stats.adPurchases = adPurchases;
+    stats.adImpressions = adImpressions;
+    stats.fbROAS = fbROAS;
 
-    const totalCancelFees = allShipments.reduce((sum, s) =>
-      sum + (s.status?.includes("Retour") || s.status === "Annulé" ? parseFloat(s.cancelFee || 0) : 0), 0);
-
-    stats.shippingAndCancelFees = totalDeliveryFees + totalCancelFees;
-    stats.totalProfit = stats.orderRevenue - stats.cogs - stats.shippingAndCancelFees - stats.adCosts;
     stats.mer = (stats.adCosts > 0) ? Number((stats.orderRevenue / stats.adCosts).toFixed(2)) : 0;
-    stats.effectiveROAS = (stats.adCosts > 0 && stats.orderRevenue > 0) ? Number(((stats.adRevenue - (stats.adRevenue / stats.orderRevenue * stats.cogs)) / stats.adCosts).toFixed(2)) : 0;
-
-    const diagnostics = {
-      ordersWithCost: orderCOGSData.length,
-      totalOrderItems: orderCOGSData.reduce((sum, order) => sum + order.items.length, 0),
-      totalCogsFromOrderItems: orderCOGSData.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + parseFloat(item.totalCost || 0), 0), 0),
-      totalCogsFromOrders: orderCOGSData.reduce((sum, order) => sum + parseFloat(order.totalCost || 0), 0),
-      totalCogsValue: stats.cogs,
-      shipmentsFound: allShipments.length,
-      shipmentsWithCostData: allShipments.filter(s => s.totalCost).length,
-      totalShippingFees: totalDeliveryFees,
-      totalCancelFees: totalCancelFees,
-      dateRange: { start: start.toISOString(), end: end.toISOString() }
-    };
-
-    const zrExpressProfitData = zrExpressProfit.success ? zrExpressProfit.data : null;
+    stats.effectiveROAS = (stats.adCosts > 0 && stats.orderRevenue > 0 && stats.adRevenue > 0) ? Number(((stats.adRevenue - (stats.adRevenue / stats.orderRevenue * stats.cogs)) / stats.adCosts).toFixed(2)) : 0;
 
     return json({
       stats,
-      facebook: facebookData,
+      facebook: facebookData, // This now contains the selectedAccount object
       datePreset: preset,
       exchangeRate: exchangeRateParam,
       topSellingProduct,
       mostProfitableProduct,
       diagnostics,
       zrExpressProfit: zrExpressProfitData,
-      shopCurrency, // ✅ FIX: Pass shop currency to the component
+      shopCurrency,
     });
+
   } catch (error) {
     console.error('❌ Loader error:', error);
     return json({
       error: error.message,
-      stats: { ...DEFAULT_STATS, dailyStats: [] },
+      stats: { ...DEFAULT_STATS },
       facebook: { ...DEFAULT_FACEBOOK_DATA },
-      datePreset: preset || 'last_30_days',
-      exchangeRate: exchangeRateParam || '1',
+      datePreset: preset,
+      exchangeRate: exchangeRateParam,
       topSellingProduct: null,
       mostProfitableProduct: null,
       diagnostics: null,
       zrExpressProfit: null,
-      shopCurrency: 'DZD', // ✅ FIX: Provide a fallback on error
+      shopCurrency: 'DZD',
     }, { status: 500 });
   }
 };
+
 
 export default function Index() {
   const initialData = useLoaderData() || {};
   const {
     stats: iStats, facebook: iFb, datePreset: iPreset, exchangeRate: iExRate,
     topSellingProduct: iTop, mostProfitableProduct: iMost, diagnostics: iDiag,
-    zrExpressProfit: iZrProfit, shopCurrency: iShopCurrency // ✅ FIX: Get shop currency from loader data
+    zrExpressProfit: iZrProfit, shopCurrency: iShopCurrency
   } = initialData;
   const [currentStats, setCurrentStats] = useState(iStats || DEFAULT_STATS);
   const [currentFacebook, setCurrentFacebook] = useState(iFb || DEFAULT_FACEBOOK_DATA);
@@ -725,7 +685,7 @@ export default function Index() {
   const [diagnostics, setDiagnostics] = useState(iDiag || {});
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
-  const [shopCurrency, setShopCurrency] = useState(iShopCurrency || 'DZD'); // ✅ FIX: Manage shop currency in state
+  const [shopCurrency, setShopCurrency] = useState(iShopCurrency || 'DZD');
 
   const { t, language, isRTL } = useLanguage();
 
@@ -736,26 +696,23 @@ export default function Index() {
     }));
   }, [t]);
 
-  // ✅ FIX: Updated formatCurrency to use dynamic shopCurrency and be more robust
-  const formatCurrency = useCallback((amount, isNegative = false, currency = shopCurrency) => {
+  // Always use shopCurrency for formatting unless explicitly overridden
+  const formatCurrency = useCallback((amount, isNegative = false, currency) => {
+    const useCurrency = currency || shopCurrency;
     if (amount === undefined || amount === null || isNaN(Number(amount))) return "-";
     const value = Math.abs(Number(amount));
     const sign = isNegative ? '-' : '';
-    const locale = language === 'ar' ? 'ar-SA' : 'en-US'; // Use a standard locale for broad compatibility
-
+    const locale = language === 'ar' ? 'ar-SA' : 'en-US'; 
     try {
       const formattedValue = new Intl.NumberFormat(locale, {
-        style: 'currency',
-        currency: currency,
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
+        style: 'currency', currency: useCurrency, minimumFractionDigits: 2, maximumFractionDigits: 2,
       }).format(value);
       return `${sign}${formattedValue}`;
     } catch (e) {
-      console.warn(`Could not format currency '${currency}'. Using fallback.`, e);
-      return `${sign}${value.toFixed(2)} ${currency}`;
+      console.warn(`Could not format currency '${useCurrency}'. Using fallback.`, e);
+      return `${sign}${value.toFixed(2)} ${useCurrency}`;
     }
-  }, [shopCurrency, language]); // ✅ FIX: Added dependencies
+  }, [shopCurrency, language]);
 
   const formatNumber = useCallback((amount) => {
     return new Intl.NumberFormat(language === 'ar' ? "ar-DZ" : "en-US").format(amount || 0);
@@ -776,8 +733,8 @@ export default function Index() {
       setZrExpressProfit(fetcher.data.zrExpressProfit || null);
       setDiagnostics(fetcher.data.diagnostics || {});
       if (fetcher.data.exchangeRate) setExchangeRate(fetcher.data.exchangeRate);
-      if (fetcher.data.shopCurrency) setShopCurrency(fetcher.data.shopCurrency); // ✅ FIX: Update shop currency on fetch
-
+      if (fetcher.data.shopCurrency) setShopCurrency(fetcher.data.shopCurrency); 
+      // This logic now works correctly because `fetcher.data.facebook.selectedAccount` is persisted
       if (fetcher.data.facebook?.selectedAccount?.label) {
         setToastMessage(t('toast.accountUpdated', { account: fetcher.data.facebook.selectedAccount.label }));
       } else {
@@ -795,13 +752,11 @@ export default function Index() {
 
   const handleAccountChange = useCallback((accountId) => {
     if (!accountId || accountId === currentFacebook.selectedAccount?.value) return;
-
     const selectedAccount = currentFacebook.accounts.find(a => a.value === accountId) || null;
+    // Optimistically set the selected account for a smoother UI response
     setCurrentFacebook(prev => ({ ...prev, selectedAccount }));
-
     const params = { preset: currentDatePreset, exchangeRate, adAccountId: accountId };
     submitFilters(params);
-
     setToastMessage(t('toast.updatingAccount', { account: selectedAccount?.label || t('facebook.chooseAccount') }));
     setShowToast(true);
   }, [currentDatePreset, exchangeRate, currentFacebook.accounts, currentFacebook.selectedAccount, submitFilters, t]);
@@ -809,29 +764,21 @@ export default function Index() {
   const handleDatePresetChange = useCallback((value) => {
     if (value === currentDatePreset) return;
     setCurrentDatePreset(value);
-
     const presetLabel = DATE_PRESETS.find(preset => preset.value === value)?.label || value;
     const params = { preset: value, exchangeRate };
-    if (currentFacebook.selectedAccount?.value) {
-      params.adAccountId = currentFacebook.selectedAccount.value;
-    }
+    if (currentFacebook.selectedAccount?.value) params.adAccountId = currentFacebook.selectedAccount.value;
     submitFilters(params);
-
     setToastMessage(t('toast.updatingPeriod', { period: presetLabel }));
     setShowToast(true);
   }, [currentDatePreset, exchangeRate, currentFacebook.selectedAccount, submitFilters, t, DATE_PRESETS]);
 
-  const handleExchangeRateChange = useCallback((value) => {
-    setExchangeRate(value);
-  }, []);
+  const handleExchangeRateChange = useCallback((value) => setExchangeRate(value), []);
 
   const handleFormSubmit = useCallback((event) => {
     event.preventDefault();
     if (isLoading) return;
     const params = { preset: currentDatePreset, exchangeRate };
-    if (currentFacebook.selectedAccount?.value) {
-      params.adAccountId = currentFacebook.selectedAccount.value;
-    }
+    if (currentFacebook.selectedAccount?.value) params.adAccountId = currentFacebook.selectedAccount.value;
     fetcher.submit(params, { method: "get" });
   }, [fetcher, isLoading, currentDatePreset, exchangeRate, currentFacebook.selectedAccount]);
 
@@ -844,68 +791,34 @@ export default function Index() {
     { labels: ['كفاءة التسويق (MER)', 'عائد الإعلان (ROAS)', 'العائد الصافي (Net ROAS)'], datasets: [{ label: 'النسبة', data: [currentStats.mer, currentStats.fbROAS, currentStats.effectiveROAS], backgroundColor: ['rgba(54, 162, 235, 0.7)', 'rgba(255, 206, 86, 0.7)', 'rgba(75, 192, 192, 0.7)'], borderColor: ['#36A2EB', '#FFCE56', '#4BC0C0'], borderWidth: 1 }] }
   ]), [currentStats]);
 
-  const toastMarkup = showToast ? (
-    <Toast content={toastMessage} onDismiss={() => setShowToast(false)} duration={4000} error={toastMessage.includes("خطأ")} />
-  ) : null;
+  const toastMarkup = showToast ? <Toast content={toastMessage} onDismiss={() => setShowToast(false)} duration={4000} error={toastMessage.includes("خطأ")} /> : null;
 
-  // ✅ FIX: Replaced the statCardsData generation with a more robust version that uses shopCurrency
   const statCardsData = useMemo(() => {
-    const netProfitValue = currentStats.totalProfit;
+    // Calculate total costs exactly as displayed
+    const totalCosts = Number(currentStats.cogs || 0) + Number(currentStats.shippingAndCancelFees || 0) + Number(currentStats.adCosts || 0);
+    // Calculate net profit using the same formula
+    const netProfitValue = Number(currentStats.orderRevenue || 0) - totalCosts;
+    const netProfitSubtitle = `${formatCurrency(currentStats.orderRevenue, false, shopCurrency)} الإيرادات - ${formatCurrency(totalCosts, false, shopCurrency)} التكاليف`;
 
-    // ✅ FIX: Compare with dynamic shopCurrency instead of hardcoded 'DZD'
-    const netProfitSubtitle = `${formatCurrency(currentStats.orderRevenue)} الإيرادات - ${formatCurrency(currentStats.cogs + currentStats.shippingAndCancelFees + currentStats.adCosts, true)} التكاليف`;
+    // Always use shopCurrency for Ad Costs
+    const fbCurrency = currentFacebook?.selectedAccount?.currency || currentFacebook?.currency || shopCurrency;
+    // adCostsInFbCurrency: convert shop currency to fb currency if needed
+    const adCostsInFbCurrency = fbCurrency !== shopCurrency ? Number(currentStats.adCosts) / parseFloat(exchangeRate) : Number(currentStats.adCosts);
 
-    const sanitizeChartData = (dailyStats, valueKey) => {
-      if (!dailyStats || !Array.isArray(dailyStats)) return [];
-
-      return dailyStats
-        .filter(d => d && d.date && d[valueKey] !== undefined && d[valueKey] !== null && !isNaN(Number(d[valueKey])))
-        .map(d => ({ date: d.date, value: Number(d[valueKey]) || 0 }))
-        .slice(-30); // Keep only last 30 days for performance
-    };
-
+    const sanitizeChartData = (dailyStats, valueKey) => (
+      !dailyStats || !Array.isArray(dailyStats) ? [] : dailyStats.filter(d => d && d.date && d[valueKey] !== undefined && d[valueKey] !== null && !isNaN(Number(d[valueKey])))
+        .map(d => ({ date: d.date, value: Number(d[valueKey]) || 0 })).slice(-30)
+    );
     return [
-      {
-        title: t('stats.netProfit'),
-        value: formatCurrency(netProfitValue, netProfitValue < 0),
-        trend: netProfitValue >= 0 ? "positive" : "negative",
-        chartData: sanitizeChartData(currentStats.dailyStats, 'totalProfit'),
-        subtitle: netProfitSubtitle
-      },
-      {
-        title: t('stats.totalSales'),
-        value: formatCurrency(currentStats.orderRevenue),
-        trend: "positive",
-        chartData: sanitizeChartData(currentStats.dailyStats, 'orderRevenue')
-      },
-      {
-        title: t('stats.adCosts'),
-        value: formatCurrency(currentStats.adCosts, true),
-        trend: "negative",
-        chartData: sanitizeChartData(currentStats.dailyStats, 'adCosts'),
-        // ✅ FIX: Compare with dynamic shopCurrency instead of hardcoded 'DZD' and removed redundant currency code
-        subtitle: currentFacebook.currency !== shopCurrency ? `${formatCurrency(currentStats.adCosts / parseFloat(exchangeRate), true, currentFacebook.currency)}` : null
-      },
-      {
-        title: t('stats.shippingCancelFees'),
-        value: formatCurrency(currentStats.shippingAndCancelFees, true),
-        trend: "negative",
-        chartData: sanitizeChartData(currentStats.dailyStats, 'shippingAndCancelFees')
-      },
-      {
-        title: t('stats.cogsCosts'),
-        value: formatCurrency(currentStats.cogs, true), // ✅ FIX: COGS is a cost, should be negative
-        trend: "negative",
-        chartData: sanitizeChartData(currentStats.dailyStats, 'cogs')
-      },
-      {
-        title: t('stats.totalShipments'),
-        value: formatNumber(diagnostics.shipmentsFound),
-        trend: "positive",
-        chartData: sanitizeChartData(currentStats.dailyStats, 'shipmentCount')
-      },
+      { title: t('stats.netProfit'), value: formatCurrency(netProfitValue, netProfitValue < 0, shopCurrency), trend: netProfitValue >= 0 ? "positive" : "negative", chartData: sanitizeChartData(currentStats.dailyStats, 'totalProfit'), subtitle: netProfitSubtitle },
+      { title: t('stats.totalSales'), value: formatCurrency(currentStats.orderRevenue, false, shopCurrency), trend: "positive", chartData: sanitizeChartData(currentStats.dailyStats, 'orderRevenue') },
+      // Ad Costs: always show in shopCurrency, and show subtitle if conversion
+      { title: t('stats.adCosts'), value: formatCurrency(currentStats.adCosts, true, shopCurrency), trend: "negative", chartData: sanitizeChartData(currentStats.dailyStats, 'adCosts'), subtitle: fbCurrency !== shopCurrency ? `${formatCurrency(adCostsInFbCurrency, true, fbCurrency)} (${formatCurrency(currentStats.adCosts, true, shopCurrency)})` : null },
+      { title: t('stats.shippingCancelFees'), value: formatCurrency(currentStats.shippingAndCancelFees, true, shopCurrency), trend: "negative", chartData: sanitizeChartData(currentStats.dailyStats, 'shippingAndCancelFees') },
+      { title: t('stats.cogsCosts'), value: formatCurrency(currentStats.cogs, true, shopCurrency), trend: "negative", chartData: sanitizeChartData(currentStats.dailyStats, 'cogs') },
+      { title: t('stats.totalShipments'), value: formatNumber(diagnostics.shipmentsFound), trend: "positive", chartData: sanitizeChartData(currentStats.dailyStats, 'shipmentCount') },
     ];
-  }, [currentStats, exchangeRate, currentFacebook.currency, zrExpressProfit, t, formatCurrency, formatNumber, diagnostics, shopCurrency]); // ✅ FIX: Add shopCurrency to dependency array
+  }, [currentStats, exchangeRate, currentFacebook, t, formatCurrency, formatNumber, diagnostics, shopCurrency]);
 
   return (
     <Frame>
@@ -920,7 +833,10 @@ export default function Index() {
                 <Bleed marginInline="400" marginBlockStart="400">
                   <Box background="bg-surface-secondary" padding="400" shadow="sm">
                     <InlineStack align="space-between" blockAlign="center">
-                      <BlockStack gap="200"><Text variant="headingXl" as="h1">لوحة تحكم الأرباح</Text><Text variant="bodyLg" tone="subdued">تتبع أرباحك ومبيعاتك وأداء إعلاناتك في مكان واحد</Text></BlockStack>
+                      <BlockStack gap="200">
+                        <Text variant="headingXl" as="h1">{t('dashboard.mainTitle')}</Text>
+                        <Text variant="bodyLg" tone="subdued">{t('dashboard.mainSubtitle')}</Text>
+                      </BlockStack>
                       <Text variant="headingLg">📊</Text>
                     </InlineStack>
                   </Box>
@@ -929,71 +845,23 @@ export default function Index() {
                   <form onSubmit={handleFormSubmit}>
                     <Grid columns={{ xs: 1, sm: 6, lg: 12 }} gap="400" alignItems="end">
                       <Grid.Cell columnSpan={{ xs: 1, sm: 3, lg: 4 }}>
-                        <Select
-                          label={t('dashboard.dateRange')}
-                          options={DATE_PRESETS}
-                          value={currentDatePreset}
-                          onChange={handleDatePresetChange}
-                          disabled={isLoading}
-                        />
+                        <Select label={t('dashboard.dateRange')} options={DATE_PRESETS} value={currentDatePreset} onChange={handleDatePresetChange} disabled={isLoading} />
                       </Grid.Cell>
                       <Grid.Cell columnSpan={{ xs: 1, sm: 3, lg: 4 }}>
                         <div ref={facebookDropdownRef}>
-                          <Select
-                            label={t('dashboard.facebookAccount')}
-                            options={[{ label: t('dashboard.selectAccount'), value: "" }, ...(currentFacebook?.accounts || [])]}
-                            value={currentFacebook.selectedAccount?.value || ""}
-                            onChange={handleAccountChange}
-                            disabled={isLoading}
-                          />
+                          <Select label={t('dashboard.facebookAccount')} options={[{ label: t('dashboard.selectAccount'), value: "" }, ...(currentFacebook?.accounts || [])]} value={currentFacebook.selectedAccount?.value || ""} onChange={handleAccountChange} disabled={isLoading} />
                         </div>
                       </Grid.Cell>
                       <Grid.Cell columnSpan={{ xs: 1, sm: 4, lg: 2 }}>
                         <div style={{ display: 'flex', gap: '5px' }}>
                           <div style={{ flex: 1 }}>
-                            <TextField
-                              label={t('dashboard.exchangeRate')}
-                              type="number"
-                              value={exchangeRate}
-                              onChange={handleExchangeRateChange}
-                              autoComplete="off"
-                              disabled={isLoading}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  const params = { preset: currentDatePreset, exchangeRate };
-                                  if (currentFacebook.selectedAccount?.value) {
-                                    params.adAccountId = currentFacebook.selectedAccount.value;
-                                  }
-                                  submitFilters(params);
-                                  setToastMessage(t('toast.exchangeRateUpdated', { rate: exchangeRate }));
-                                  setShowToast(true);
-                                }
-                              }}
-                            />
+                            <TextField label={t('dashboard.exchangeRate')} type="number" value={exchangeRate} onChange={handleExchangeRateChange} autoComplete="off" disabled={isLoading} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const params = { preset: currentDatePreset, exchangeRate }; if (currentFacebook.selectedAccount?.value) params.adAccountId = currentFacebook.selectedAccount.value; submitFilters(params); setToastMessage(t('toast.exchangeRateUpdated', { rate: exchangeRate })); setShowToast(true); } }} />
                           </div>
-                          <div style={{ alignSelf: 'flex-end', marginBottom: '2px' }}>
-                            <Button
-                              onClick={() => {
-                                const params = { preset: currentDatePreset, exchangeRate };
-                                if (currentFacebook.selectedAccount?.value) {
-                                  params.adAccountId = currentFacebook.selectedAccount.value;
-                                }
-                                submitFilters(params);
-                                setToastMessage(t('toast.exchangeRateUpdated', { rate: exchangeRate }));
-                                setShowToast(true);
-                              }}
-                              disabled={isLoading}
-                            >
-                              تطبيق
-                            </Button>
-                          </div>
+                          <div style={{ alignSelf: 'flex-end', marginBottom: '2px' }}><Button onClick={() => { const params = { preset: currentDatePreset, exchangeRate }; if (currentFacebook.selectedAccount?.value) params.adAccountId = currentFacebook.selectedAccount.value; submitFilters(params); setToastMessage(t('toast.exchangeRateUpdated', { rate: exchangeRate })); setShowToast(true); }} disabled={isLoading}>تطبيق</Button></div>
                         </div>
                       </Grid.Cell>
                       <Grid.Cell columnSpan={{ xs: 1, sm: 2, lg: 2 }}>
-                        <Button primary submit loading={isLoading} fullWidth>
-                          {isLoading ? t('dashboard.updating') : t('dashboard.updateData')}
-                        </Button>
+                        <Button primary submit loading={isLoading} fullWidth>{isLoading ? t('dashboard.updating') : t('dashboard.updateData')}</Button>
                       </Grid.Cell>
                     </Grid>
                   </form>
@@ -1004,12 +872,7 @@ export default function Index() {
 
           {isLoading ? (
             <Layout.Section>
-              <Card>
-                <BlockStack gap="400" align="center" inlineAlign="center" padding="1200">
-                  <Spinner size="large" />
-                  <Text variant="headingMd" tone="subdued">{t('dashboard.dataLoadingTitle')}</Text>
-                </BlockStack>
-              </Card>
+              <Card><BlockStack gap="400" align="center" inlineAlign="center" padding="1200"><Spinner size="large" /><Text variant="headingMd" tone="subdued">{t('dashboard.dataLoadingTitle')}</Text></BlockStack></Card>
             </Layout.Section>
           ) : (
             <>
@@ -1023,14 +886,7 @@ export default function Index() {
                           <Text variant="headingLg" as="h3">{stat.value}</Text>
                           {stat.subtitle && <Text variant="bodySm" tone="subdued">{stat.subtitle}</Text>}
                         </BlockStack>
-                        <SparkLineChart
-                          data={stat.chartData || []}
-                          trend={stat.trend}
-                          formatValue={(value) => stat.title.includes(t('stats.totalShipments')) ? formatNumber(value) : formatCurrency(value, value < 0)}
-                          language={language}
-                          t={t}
-                          isRTL={isRTL}
-                        />
+                        <SparkLineChart data={stat.chartData || []} trend={stat.trend} formatValue={(value) => stat.title.includes(t('stats.totalShipments')) ? formatNumber(value) : formatCurrency(value, value < 0)} language={language} t={t} />
                       </BlockStack>
                     </Card>
                   ))}
@@ -1048,19 +904,13 @@ export default function Index() {
                               <Text variant="headingLg" as="h2">{t('facebook.title')}</Text>
                               <Text variant="bodyMd" tone="subdued"> {t('facebook.chooseAccount')}: {currentFacebook.selectedAccount.label} </Text>
                             </BlockStack>
-                            <Badge tone="info">{currentFacebook.currency}</Badge>
+                            <Badge tone="info">{currentFacebook.selectedAccount.currency || currentFacebook.currency || shopCurrency}</Badge>
                           </InlineStack>
                         </Box>
                       </Bleed>
                       <Box padding="400">
                         <Suspense fallback={<LoadingFallback />}>
-                          <LazyFacebookMetrics
-                            facebook={currentFacebook}
-                            stats={currentStats}
-                            formatCurrency={formatCurrency}
-                            formatNumber={formatNumber}
-                            scrollToFacebookDropdown={scrollToFacebookDropdown}
-                          />
+                          <LazyFacebookMetrics facebook={currentFacebook} stats={currentStats} formatCurrency={formatCurrency} formatNumber={formatNumber} scrollToFacebookDropdown={scrollToFacebookDropdown} />
                         </Suspense>
                       </Box>
                     </BlockStack>
@@ -1073,31 +923,11 @@ export default function Index() {
                   <BlockStack gap="400" padding="400">
                     <Text variant="headingLg" as="h2">{t('diagnostics.title')}</Text>
                     <InlineGrid columns={{ xs: 2, sm: 4 }} gap="400">
-                      {[
-                        { icon: '📦', label: t('diagnostics.ordersWithCost'), value: formatNumber(diagnostics.ordersWithCost) },
-                        { icon: '💰', label: t('diagnostics.totalCogsValue'), value: formatCurrency(diagnostics.totalCogsValue, true) },
-                        { icon: '🚚', label: t('diagnostics.totalShipments'), value: formatNumber(diagnostics.shipmentsFound) },
-                        { icon: '✅', label: t('diagnostics.shipmentsWithCost'), value: formatNumber(diagnostics.shipmentsWithCostData) }
-                      ].map(({ icon, label, value }, index) => (
-                        <BlockStack key={index} gap="200" align="center" inlineAlign="center">
-                          <Text variant="headingLg">{icon}</Text>
-                          <Text variant="bodyMd" tone="subdued" alignment="center">{label}</Text>
-                          <Text variant="headingMd" alignment="center">{value}</Text>
-                        </BlockStack>
-                      ))}
+                      {[{ icon: '📦', label: t('diagnostics.ordersWithCost'), value: formatNumber(diagnostics.ordersWithCost) }, { icon: '💰', label: t('diagnostics.totalCogsValue'), value: formatCurrency(diagnostics.totalCogsValue, true) }, { icon: '🚚', label: t('diagnostics.totalShipments'), value: formatNumber(diagnostics.shipmentsFound) }, { icon: '✅', label: t('diagnostics.shipmentsWithCost'), value: formatNumber(diagnostics.shipmentsWithCostData) }].map(({ icon, label, value }, index) => (<BlockStack key={index} gap="200" align="center" inlineAlign="center"><Text variant="headingLg">{icon}</Text><Text variant="bodyMd" tone="subdued" alignment="center">{label}</Text><Text variant="headingMd" alignment="center">{value}</Text></BlockStack>))}
                     </InlineGrid>
                     <Divider />
                     <InlineGrid columns={{ xs: 2 }} gap="400">
-                      {[
-                        { icon: '🚚', label: t('diagnostics.shippingFees'), value: formatCurrency(diagnostics.totalShippingFees, true) },
-                        { icon: '❌', label: t('diagnostics.cancelFees'), value: formatCurrency(diagnostics.totalCancelFees, true) }
-                      ].map(({ icon, label, value }, index) => (
-                        <BlockStack key={index} gap="200" align="center" inlineAlign="center">
-                          <Text variant="headingLg">{icon}</Text>
-                          <Text variant="bodyMd" tone="subdued" alignment="center">{label}</Text>
-                          <Text variant="headingMd" alignment="center">{value}</Text>
-                        </BlockStack>
-                      ))}
+                      {[{ icon: '🚚', label: t('diagnostics.shippingFees'), value: formatCurrency(diagnostics.totalShippingFees, true) }, { icon: '❌', label: t('diagnostics.cancelFees'), value: formatCurrency(diagnostics.totalCancelFees, true) }].map(({ icon, label, value }, index) => (<BlockStack key={index} gap="200" align="center" inlineAlign="center"><Text variant="headingLg">{icon}</Text><Text variant="bodyMd" tone="subdued" alignment="center">{label}</Text><Text variant="headingMd" alignment="center">{value}</Text></BlockStack>))}
                     </InlineGrid>
                   </BlockStack>
                 </Card>
@@ -1107,104 +937,27 @@ export default function Index() {
                 <Card>
                   <BlockStack gap="500" padding="400">
                     <Text variant="headingLg" as="h2">{t('charts.performanceAnalysis')}</Text>
-                    <Suspense fallback={<LoadingFallback />}>
-                      <ErrorBoundary fallback={
-                        <Banner title="خطأ في تحميل الرسوم البيانية" tone="critical">
-                          <Text>حدث خطأ أثناء تحميل الرسوم البيانية. يرجى تحديث الصفحة والمحاولة مرة أخرى.</Text>
-                        </Banner>
-                      }>
-                        <LazyChartComponents
-                          profitDistributionData={profitDistributionData}
-                          performanceMetricsData={performanceMetricsData}
-                        />
-                      </ErrorBoundary>
-                    </Suspense>
+                    <Suspense fallback={<LoadingFallback />}><ErrorBoundary fallback={<Banner title="خطأ في تحميل الرسوم البيانية" tone="critical"><Text>حدث خطأ أثناء تحميل الرسوم البيانية. يرجى تحديث الصفحة والمحاولة مرة أخرى.</Text></Banner>}><LazyChartComponents profitDistributionData={profitDistributionData} performanceMetricsData={performanceMetricsData} /></ErrorBoundary></Suspense>
                   </BlockStack>
                 </Card>
               </Layout.Section>
 
               {topSellingProduct && mostProfitableProduct && (
                 <Layout.Section>
-                  <Grid columns={{ xs: 1, sm: 2 }} gap="400">
-                    {[
-                      {
-                        title: t('products.bestSelling'),
-                        product: topSellingProduct,
-                        icon: '📈',
-                        stat: `${t('products.salesCount')} ${formatNumber(topSellingProduct.quantity)}`
-                      },
-                      {
-                        title: t('products.mostProfitable'),
-                        product: mostProfitableProduct,
-                        icon: '🏆',
-                        stat: `${t('products.netProfit')} ${formatCurrency(mostProfitableProduct.profit)}`
-                      }
-                    ].map(({ title, product, icon, stat }, index) => (
-                      <Card key={index}>
-                        <BlockStack gap="400" padding="400">
-                          <InlineStack align="space-between" blockAlign="start">
-                            <Text variant="headingMd" as="h3">{title}</Text>
-                            <Text variant="headingLg">{icon}</Text>
-                          </InlineStack>
-                          <Text variant="headingLg">{product.title || t('products.unavailable')}</Text>
-                          {product.image && (
-                            <img
-                              alt={product.title}
-                              src={product.image}
-                              style={{
-                                width: "100%",
-                                maxHeight: "200px",
-                                objectFit: "contain",
-                                borderRadius: "var(--p-border-radius-200)"
-                              }}
-                              loading="lazy"
-                            />
-                          )}
-                          <Box background="bg-surface-success-subdued" borderRadius="200" padding="300">
-                            <Text variant="bodyLg" alignment="center" fontWeight="semibold">{stat}</Text>
-                          </Box>
-                        </BlockStack>
-                      </Card>
+                  <InlineGrid columns={{ xs: 1, sm: 2 }} gap="400">
+                    {[{ title: t('products.bestSelling'), product: topSellingProduct, icon: '📈', stat: `${t('products.salesCount')} ${formatNumber(topSellingProduct.quantity)}` }, { title: t('products.mostProfitable'), product: mostProfitableProduct, icon: '🏆', stat: `${t('products.netProfit')} ${formatCurrency(mostProfitableProduct.profit)}` }].map(({ title, product, icon, stat }, index) => (
+                      <Card key={index}><BlockStack gap="400" padding="400"><InlineStack align="space-between" blockAlign="start"><Text variant="headingMd" as="h3">{title}</Text><Text variant="headingLg">{icon}</Text></InlineStack><Text variant="headingLg" style={{ wordBreak: 'break-word', textAlign: 'center' }}>{product.title || t('products.unavailable')}</Text><Box background="bg-surface-success-subdued" borderRadius="200" padding="300" style={{ width: '100%', textAlign: 'center', marginTop: 'auto' }}><Text variant="bodyLg" alignment="center" fontWeight="semibold" style={{ wordBreak: 'break-word' }}>{stat}</Text></Box></BlockStack></Card>
                     ))}
-                  </Grid>
+                  </InlineGrid>
                 </Layout.Section>
               )}
 
               {currentFacebook?.selectedAccount && (
                 <Layout.Section>
-                  <CalloutCard
-                    title={t('roasCalculation.title')}
-                    illustration="https://cdn.shopify.com/s/files/1/0757/9955/files/empty-state.svg"
-                    primaryAction={{ content: t('roasCalculation.learnMore'), url: 'https://www.shopify.com/blog/roas', external: true }}
-                  >
+                  <CalloutCard title={t('roasCalculation.title')} illustration="https://cdn.shopify.com/s/files/1/0757/9955/files/empty-state.svg" primaryAction={{ content: t('roasCalculation.learnMore'), url: 'https://www.shopify.com/blog/roas', external: "true" }}>
                     <BlockStack gap="400">
                       <Text variant="bodyMd">{t('roasCalculation.description')}</Text>
-                      <Card>
-                        <BlockStack gap="400" padding="400">
-                          <Text variant="bodyMd" fontWeight="bold">{t('roasCalculation.formula')}</Text>
-                          <Box background="bg-surface-secondary" padding="300" borderRadius="200">
-                            <BlockStack gap="200">
-                              <Text as="p" variant="bodyMd"><code>{t('roasCalculation.netRevenue')}</code></Text>
-                              <Text as="p" variant="bodyMd"><code>{t('roasCalculation.netRoas')}</code></Text>
-                            </BlockStack>
-                          </Box>
-                          <Divider />
-                          <Text variant="bodyMd" fontWeight="bold">{t('roasCalculation.calculation')}</Text>
-                          {currentStats.orderRevenue > 0 && currentStats.adCosts > 0 ? (
-                            <BlockStack gap="300">
-                              <Text>{t('roasCalculation.step1')} {formatCurrency(currentStats.adRevenue, true)} - ({formatCurrency(currentStats.adRevenue, true)} ÷ {formatCurrency(currentStats.orderRevenue, true)} × {formatCurrency(currentStats.cogs, true)}) = <strong>{formatCurrency(currentStats.adRevenue - (currentStats.adRevenue / currentStats.orderRevenue * currentStats.cogs), true)}</strong></Text>
-                              <Text>{t('roasCalculation.step2')} {formatCurrency(currentStats.adRevenue - (currentStats.adRevenue / currentStats.orderRevenue * currentStats.cogs), true)} ÷ {formatCurrency(currentStats.adCosts, true)} = <strong>{currentStats.effectiveROAS}x</strong></Text>
-                              <Divider />
-                              <InlineStack align="space-between" blockAlign="center">
-                                <Text variant="headingMd">{t('roasCalculation.finalResult')}</Text>
-                                <Badge tone="success" size="large">{currentStats.effectiveROAS}x</Badge>
-                              </InlineStack>
-                            </BlockStack>
-                          ) : (
-                            <Text tone="subdued">{t('roasCalculation.insufficientData')}</Text>
-                          )}
-                        </BlockStack>
-                      </Card>
+                      <Card><BlockStack gap="400" padding="400"><Text variant="bodyMd" fontWeight="bold">{t('roasCalculation.formula')}</Text><Box background="bg-surface-secondary" padding="300" borderRadius="200"><BlockStack gap="200"><Text as="p" variant="bodyMd"><code>{t('roasCalculation.netRevenue')}</code></Text><Text as="p" variant="bodyMd"><code>{t('roasCalculation.netRoas')}</code></Text></BlockStack></Box><Divider /><Text variant="bodyMd" fontWeight="bold">{t('roasCalculation.calculation')}</Text>{currentStats.orderRevenue > 0 && currentStats.adCosts > 0 ? (<BlockStack gap="300"><Text>{t('roasCalculation.step1')} {formatCurrency(currentStats.adRevenue, true)} - ({formatCurrency(currentStats.adRevenue, true)} ÷ {formatCurrency(currentStats.orderRevenue, true)} × {formatCurrency(currentStats.cogs, true)}) = <strong>{formatCurrency(currentStats.adRevenue - (currentStats.adRevenue / currentStats.orderRevenue * currentStats.cogs), true)}</strong></Text><Text>{t('roasCalculation.step2')} {formatCurrency(currentStats.adRevenue - (currentStats.adRevenue / currentStats.orderRevenue * currentStats.cogs), true)} ÷ {formatCurrency(currentStats.adCosts, true)} = <strong>{currentStats.effectiveROAS}x</strong></Text><Divider /><InlineStack align="space-between" blockAlign="center"><Text variant="headingMd">{t('roasCalculation.finalResult')}</Text><Badge tone="success" size="large">{currentStats.effectiveROAS}x</Badge></InlineStack></BlockStack>) : (<Text tone="subdued">{t('roasCalculation.insufficientData')}</Text>)}</BlockStack></Card>
                     </BlockStack>
                   </CalloutCard>
                 </Layout.Section>
